@@ -3,7 +3,7 @@ import type { FieldError } from '../http/errors';
 import { maskAadhaar } from '../lib/aadhaar';
 import { normaliseMobile } from '../lib/text';
 import { byType } from './built-in';
-import { isLinkedKind, YES_NO, type Form, type Step } from './constants';
+import { CUSTOM_KEY_PREFIX, isLinkedKind, YES_NO, type Form, type Step } from './constants';
 import { chosen, hasChoices, isBlank, missingText, typeIssue } from './field-types';
 import { optionsKind, optionValue, type Program, type ProgramField } from './masters';
 import { aadhaarDigits, FIELD_RULES } from './rules';
@@ -16,10 +16,24 @@ import { validationIssue } from './validation';
 
 /* A field shown only in some cases: the disability details of a person with a disability, the scale of a CGPA. */
 const DISABILITY_DETAILS: readonly string[] = ['disability_type', 'disability_certificate_number'];
-function applies(key: string, value: (key: string) => string): boolean {
+export function applies(key: string, value: (key: string) => string): boolean {
   if (DISABILITY_DETAILS.includes(key)) return value('disability_status') === 'Yes';
   if (key === 'cgpa_scale') return value('grading_type') === 'CGPA';
   return true;
+}
+
+/*
+ * The form as it is stored: every field of the program ('' when it has no value; always of the Aadhaar number), and the values
+ * of own fields deleted since.
+ */
+export function storedForm(program: Program, data: Record<string, unknown>): Form {
+  const keys = [...program.fields.map((f) => f.key), ...Object.keys(data).filter((k) => k.startsWith(CUSTOM_KEY_PREFIX))];
+  return Object.fromEntries(
+    keys.map((k) => {
+      const v = data[k];
+      return [k, typeof v === 'string' ? v : ''];
+    }),
+  );
 }
 
 export interface CheckOptions {

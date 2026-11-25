@@ -7,7 +7,7 @@ This file says how the backend is built, and what was decided where the analysis
 
 | In | Not in (later) |
 |---|---|
-| Student portal (`/login` … `/application`), Auditor panel (`/manage`), every master, batches | Officers' approval (Divisional Officer, COEP, Head Office, Admin), today in the admin panel (5174). The stages, events and constraints are stored from the start |
+| Student portal (`/login` … `/application`), Auditor panel (`/manage`), every master, batches | Officers' approval (Divisional Officer, COEP, Head Office, Super Admin): in Sarthi, linked by `docs/SARTHI_LINK.md` (section 8) |
 | The 5174 masters and batch data the program needs, also in the 5176 frontend: **States**, **Talukas**, center delete, batch code / dates / delivery mode / technology | Other programmes' masters (departments, colleges, training centres, LMS, …) |
 | A database of its own, starting with the masters only | – |
 | A command that copies students, files and masters of the old system later (`npm run import:legacy`) | – |
@@ -51,7 +51,8 @@ pino, vitest + supertest. Port 5101.
 | `batches` | code, name, district, center, size, dates, delivery mode, technology |
 | `states` → `districts` → `talukas`, `centres` | geography and Center Master |
 | `program_options`, `district_technologies`, `program_documents`, `program_fields` | dropdowns, technologies per district, documents, form fields |
-| `settings` | batch size, support, welcome, help |
+| `settings` | batch size, support, welcome, help (`districts.batch_size` = a district's own batch size) |
+| `link_outbox`, `link_inbound` | messages to Sarthi; its decisions that are done |
 
 Constraints keep impossible states out (a draft with a stage, a stage past BATCH without a batch, a submitted form with a part of its Aadhaar
 only, two submitted forms of one Aadhaar, a deleted master that is active, …). `district_id`, `caste_id` and `centre_id` of a form are
@@ -133,7 +134,22 @@ What the rest of the program does without a field's value: the account's name an
 index, so a second form of the same person is not noticed; while District is off or optional, a batch of students without one is of its center's
 district; every technology is offered without a district.
 
-## 8. Steps
+## 8. The officers' approval in Sarthi (25 Nov 2026, on request)
+
+The officers decide in Sarthi (`sarthi-api`, `sarthi-admin`); the contract of the two servers is `docs/SARTHI_LINK.md`.
+
+- **Outbox.** A new or changed batch, a student approved again after being sent back, and a correction of a student in a batch each add a row to
+  `link_outbox` in the transaction of the change. `seq` is the order of the changes within a batch: the batch's row is locked while one is added
+  (after the applications, several batches in one order). What a message says is read when it is sent, so a late message is never old.
+- **Worker** (`program/link/worker.ts`): the first message of each batch that is not sent; one after the other; one worker at a time (session
+  lock); 15 s polling and a kick after each commit. Retries and FAILED as in the contract. A message that cannot be made is tried again too.
+- **Inbound** (`modules/link`): signature over the raw body before it is understood, own rate limit, each decision in its own transaction under
+  the application's row lock, done once per id. Only the moves of the contract, only from the stage the form is at. `SUPER_ADMIN` there is
+  stage `ADMIN` here. The event has the officer's name, role and time; nothing of it goes to the audit log.
+- **Batch size per district**: `districts.batch_size`, else the default. It is checked after the students' district is known.
+- The browser never calls the other system, and the two share no login and no database.
+
+## 9. Steps
 
 1. Foundation, schema, seeds, shared rules, test helpers.
 2. Student module · Panel module · Masters module (in parallel, each with its tests).

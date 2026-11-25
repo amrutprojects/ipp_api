@@ -37,4 +37,13 @@ export const config = {
     from: env.SMTP_FROM ?? env.SMTP_USER,
   },
   support: { email: env.SUPPORT_EMAIL ?? null, mobile: env.SUPPORT_MOBILE ?? null },
+  /* The link to Sarthi (program/link). */
+  link: {
+    enabled: env.SARTHI_LINK_ENABLED,
+    url: env.SARTHI_API_URL?.replace(/\/+$/, '') ?? null,
+    secret: env.SARTHI_LINK_SECRET ?? null,
+    timeoutMs: env.SARTHI_HTTP_TIMEOUT_MS,
+    /* Calls of Sarthi per window: officers open many documents from one address. */
+    rateMax: 6000,
+  },
 };

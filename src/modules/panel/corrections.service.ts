@@ -10,6 +10,8 @@ import { normaliseMobile } from '../../lib/text';
 import type { Form } from '../../program/constants';
 import { syncDocumentsVerified } from '../../program/document-checks';
 import { checkForm, fieldText, referenceNames } from '../../program/form';
+import { enqueueApplications } from '../../program/link/outbox';
+import { kickLink } from '../../program/link/runtime';
 import { loadProgram, type Program } from '../../program/masters';
 import { aadhaarDigits } from '../../program/rules';
 import { checkUploads, discardFiles, discardUnusedFiles, type CheckedUpload } from '../../program/uploads';
@@ -151,6 +153,7 @@ export async function editForm(req: Request, user: PanelUser, accountId: string,
         user,
         keys.map((key) => ({ key, label: program.label(key), from: from(key), to: to(key) })),
       );
+      await enqueueApplications(db, 'UPDATE', [p.id]);
       /* The names of the fields only: their values are in the record of the edit. */
       await audit.inTx(db, req, {
         action: 'edp.application.edit',
@@ -167,6 +170,7 @@ export async function editForm(req: Request, user: PanelUser, accountId: string,
       ]);
     throw err;
   }
+  kickLink();
 }
 
 /* ----------------------------------------------------------------------------------------------------------- documents */
@@ -244,6 +248,7 @@ export async function uploadDocuments(
         })),
       );
       await syncDocumentsVerified(db, p.id, user.id);
+      await enqueueApplications(db, 'UPDATE', [p.id]);
       await audit.inTx(db, req, {
         action: 'edp.application.documents',
         resource: 'student_account',
@@ -261,5 +266,6 @@ export async function uploadDocuments(
     await discardUnusedFiles(written);
     throw err;
   }
+  kickLink();
   await discardFiles(replaced);
 }

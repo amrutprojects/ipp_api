@@ -57,6 +57,7 @@ const BATCH_KEYS = [
   'size',
   'stages',
   'rejected',
+  'sync',
   'other_centre',
   'start_date',
   'end_date',
@@ -193,19 +194,19 @@ describe('POST /manage/batches', () => {
     expect(detailsOf(await create(idsOf(s)))).toEqual([
       {
         field: 'body.ids',
-        message: 'A batch must have exactly 30 students (Settings → Batch size); 3 selected.',
+        message: 'A batch of Nashik must have exactly 30 students (Settings → Batch size); 3 selected.',
       },
     ]);
     await setBatchSize(2);
     expect(detailsOf(await create(idsOf(s)))).toEqual([
-      { field: 'body.ids', message: 'A batch must have exactly 2 students (Settings → Batch size); 3 selected.' },
+      { field: 'body.ids', message: 'A batch of Nashik must have exactly 2 students (Settings → Batch size); 3 selected.' },
     ]);
     const made = await create(idsOf(s.slice(0, 2)));
     expect(made.status).toBe(201);
     await setBatchSize(1);
     expect((await get(`/manage/batches/${made.body.data.id}`, admin.token)).body.data.size).toBe(2);
     expect(detailsOf(await create(idsOf([s[2]!, await waiting()])))).toEqual([
-      { field: 'body.ids', message: 'A batch must have exactly 1 student (Settings → Batch size); 2 selected.' },
+      { field: 'body.ids', message: 'A batch of Nashik must have exactly 1 student (Settings → Batch size); 2 selected.' },
     ]);
     expect((await create(idsOf([s[2]!]))).body.data.size).toBe(1);
   });
@@ -393,7 +394,48 @@ describe('POST /manage/batches', () => {
     expect((await create(idsOf(s))).status).toBe(201);
   });
 
-  it('has its checks in one order: size, center, technology, district, name, students, documents', async () => {
+  it('has as many students as its district’s own size, where there is one', async () => {
+    await setBatchSize(2);
+    const sizeOf = (code: string, size: number | null) =>
+      pool.query(`UPDATE districts SET batch_size = $2 WHERE code = $1`, [code, size]);
+    await sizeOf('NAS', 1);
+    await sizeOf('PUN', 3);
+    const pune = async () => waiting({ values: { district_id: await districtId('PUN') } });
+    const satara = async () => waiting({ values: { district_id: await districtId('SAT') } });
+    const nashik = [await waiting(), await waiting()];
+    expect(detailsOf(await create(idsOf(nashik)))).toEqual([
+      { field: 'body.ids', message: 'A batch of Nashik must have exactly 1 student (Settings → Batch size); 2 selected.' },
+    ]);
+    expect((await create(idsOf(nashik.slice(0, 1)))).body.data).toMatchObject({ size: 1, district: { name: 'Nashik' } });
+    const three = [await pune(), await pune(), await pune()];
+    expect(detailsOf(await create(idsOf(three.slice(0, 2))))).toEqual([
+      { field: 'body.ids', message: 'A batch of Pune must have exactly 3 students (Settings → Batch size); 2 selected.' },
+    ]);
+    expect((await create(idsOf(three))).body.data).toMatchObject({ size: 3, students: 3, district: { name: 'Pune' } });
+    /* Any other district: the default. */
+    expect((await create(idsOf([await satara(), await satara()]))).body.data.size).toBe(2);
+    /* Taken away again: the default. A batch keeps the size it was made with. */
+    await sizeOf('NAS', null);
+    expect((await create(idsOf([nashik[1]!, await waiting()]))).body.data.size).toBe(2);
+    const list = (await get('/manage/batches', admin.token)).body;
+    expect(list.data.map((b: { size: number }) => b.size)).toEqual([2, 2, 3, 1]);
+    expect(list.meta.size).toBe(2);
+  });
+
+  it('students without a district: the size of the district of the center', async () => {
+    await setBatchSize(2);
+    await pool.query(`UPDATE districts SET batch_size = 1 WHERE code = 'SAT'`);
+    await pool.query(`UPDATE program_fields SET required = false WHERE key = 'district_id'`);
+    const a = await waiting();
+    await pool.query(`UPDATE applications SET data = data - 'district_id' WHERE id = $1`, [a.applicationId]);
+    expect(detailsOf(await create(idsOf([a])))).toEqual([
+      { field: 'body.ids', message: 'A batch of Nashik must have exactly 2 students (Settings → Batch size); 1 selected.' },
+    ]);
+    const made = await create(idsOf([a]), { centre_id: await makeCentre({ district: 'SAT' }) });
+    expect(made.body.data).toMatchObject({ size: 1, district: { name: 'Satara' } });
+  });
+
+  it('has its checks in one order: center, technology, district, size, name, students, documents', async () => {
     await setBatchSize(2);
     await makeBatch({ centre, by: admin, name: 'Taken' });
     const pune = await waiting({ values: { district_id: await districtId('PUN') } });
@@ -403,10 +445,13 @@ describe('POST /manage/batches', () => {
       unverified.applicationId,
     ]);
     const wrong = { name: 'Taken', centre_id: UNKNOWN_ID, technology: 'T99' };
-    expect(fieldsOf(await create(idsOf([pune]), wrong))).toEqual(['body.ids']);
+    expect(fieldsOf(await create(idsOf([pune]), wrong))).toEqual(['body.centre_id']);
     expect(fieldsOf(await create(idsOf([pune, draft]), wrong))).toEqual(['body.centre_id']);
     expect(fieldsOf(await create(idsOf([pune, draft]), { ...wrong, centre_id: centre }))).toEqual(['body.technology']);
     expect(fieldsOf(await create(idsOf([pune, draft]), { name: 'Taken' }))).toEqual(['body.ids']);
+    expect(detailsOf(await create(idsOf([unverified]), { name: 'Taken' }))).toEqual([
+      { field: 'body.ids', message: 'A batch of Nashik must have exactly 2 students (Settings → Batch size); 1 selected.' },
+    ]);
     expect(fieldsOf(await create(idsOf([unverified, draft]), { name: 'Taken' }))).toEqual(['body.name']);
     expect(refusal(await create(idsOf([unverified, draft])))[1]).toMatch(/waiting for a batch/);
     expect(refusal(await create(idsOf([unverified, await waiting()])))[1]).toMatch(/every document/);

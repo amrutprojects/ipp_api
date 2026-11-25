@@ -1,11 +1,11 @@
 import { config } from '../config';
-import { one, pool, type Db } from '../db/pool';
+import { one, pool, rows, type Db } from '../db/pool';
 import { logger } from '../lib/logger';
 import { BATCH_SIZE } from './constants';
 
 /*
  * The settings the panel edits (table settings, one row per key), with the defaults used until a row is saved. "batch": how
- * many students a new batch has. "support": the contact line students see after submitting and in e-mails. "welcome": the
+ * many students a new batch has (a district can have a size of its own: districts.batch_size). "support": the contact line students see after submitting and in e-mails. "welcome": the
  * dialog shown once the account is created. "help": the Help button's contact details.
  */
 export interface SavedMeta {
@@ -129,6 +129,29 @@ async function read<K extends SettingKey>(key: K, db: Db): Promise<SettingValues
 
 /* A setting as saved (else the defaults), when it was last saved and by whom. */
 export const batchSettings = (db: Db = pool): Promise<BatchSettings> => read('batch', db);
+
+export interface DistrictSize {
+  district_id: string;
+  name: string;
+  size: number;
+}
+/* The districts with a batch size of their own, by name. */
+export const districtSizes = (db: Db = pool): Promise<DistrictSize[]> =>
+  rows<DistrictSize>(
+    `SELECT id AS district_id, name, batch_size AS size FROM districts
+     WHERE batch_size IS NOT NULL AND deleted_at IS NULL ORDER BY lower(name), id`,
+    [],
+    db,
+  );
+/* How many students a new batch of the district has: its own size, else the default. */
+export async function batchSizeOf(db: Db, districtId: string): Promise<{ size: number; name: string }> {
+  const d = await one<{ name: string; batch_size: number | null }>(
+    `SELECT name, batch_size FROM districts WHERE id = $1`,
+    [districtId],
+    db,
+  );
+  return { name: d?.name ?? '', size: d?.batch_size ?? (await batchSettings(db)).size };
+}
 export const supportSettings = (db: Db = pool): Promise<SupportSettings> => read('support', db);
 export const welcomeSettings = (db: Db = pool): Promise<WelcomeSettings> => read('welcome', db);
 export const helpSettings = (db: Db = pool): Promise<HelpSettings> => read('help', db);

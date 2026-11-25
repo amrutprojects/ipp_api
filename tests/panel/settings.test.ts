@@ -2,8 +2,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { config } from '../../src/config';
 import { rows } from '../../src/db/pool';
 import { closeDatabase, resetDatabase } from '../helpers/db';
-import { makePanelUser, type TestPanelUser } from '../helpers/factory';
-import { audits, detailsOf, fieldsOf, get, put } from './helpers';
+import { districtId, makePanelUser, type TestPanelUser } from '../helpers/factory';
+import { audits, detailsOf, fieldsOf, get, put, UNKNOWN_ID } from './helpers';
 
 let admin: TestPanelUser;
 let viewer: TestPanelUser;
@@ -24,7 +24,7 @@ const save = (key: string, body: object) => put(`/manage/settings/${key}`, admin
 
 describe('batch size', () => {
   it('is 30 until it is set to another whole number from 1 to 100', async () => {
-    expect(await read('batch')).toEqual({ size: 30, updated_at: null, updated_by: null, district_required: true });
+    expect(await read('batch')).toEqual({ size: 30, districts: [], updated_at: null, updated_by: null, district_required: true });
     for (const [size, message] of [
       [0, 'Batch size must be at least 1'],
       [101, 'Batch size must be at most 100'],
@@ -34,13 +34,14 @@ describe('batch size', () => {
     ] as const)
       expect(detailsOf(await save('batch', { size }))).toEqual([{ field: 'body.size', message }]);
     expect(detailsOf(await save('batch', {}))).toEqual([{ field: 'body.size', message: 'Batch size is required' }]);
-    expect(await read('batch')).toEqual({ size: 30, updated_at: null, updated_by: null, district_required: true });
+    expect(await read('batch')).toEqual({ size: 30, districts: [], updated_at: null, updated_by: null, district_required: true });
 
     const res = await save('batch', { size: 2 });
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('Batch size saved');
     expect(res.body.data).toEqual({
       size: 2,
+      districts: [],
       updated_at: expect.any(String),
       updated_by: 'Settings Admin',
       district_required: true,
@@ -52,6 +53,82 @@ describe('batch size', () => {
     const log = await audits('edp.settings.batch');
     expect(log).toHaveLength(3);
     expect(log[0]).toMatchObject({ resource: 'settings', resource_id: 'batch', actor_kind: 'PANEL', actor_id: admin.id });
+  });
+});
+
+describe('batch size of a district', () => {
+  const id = districtId;
+  const sizes = async () => (await read('batch')).districts;
+
+  it('is set, changed and taken away with the list; without a list it stays', async () => {
+    const [nashik, pune, satara] = [await id('NAS'), await id('PUN'), await id('SAT')];
+    const first = await save('batch', {
+      size: 30,
+      districts: [
+        { district_id: pune, size: 10 },
+        { district_id: nashik.toUpperCase(), size: 5 },
+      ],
+    });
+    expect(first.body.data).toMatchObject({
+      size: 30,
+      districts: [
+        { district_id: nashik, name: 'Nashik', size: 5 },
+        { district_id: pune, name: 'Pune', size: 10 },
+      ],
+    });
+    expect((await save('batch', { size: 20 })).body.data).toMatchObject({ size: 20, districts: [{ size: 5 }, { size: 10 }] });
+    await save('batch', {
+      size: 20,
+      districts: [
+        { district_id: pune, size: 12 },
+        { district_id: satara, size: 1 },
+      ],
+    });
+    expect(await sizes()).toEqual([
+      { district_id: pune, name: 'Pune', size: 12 },
+      { district_id: satara, name: 'Satara', size: 1 },
+    ]);
+    expect((await save('batch', { size: 20, districts: [] })).body.data.districts).toEqual([]);
+    expect((await audits('edp.settings.batch')).map((e) => e.details)).toEqual([
+      { districts: 2 },
+      null,
+      { districts: 2 },
+      { districts: 0 },
+    ]);
+  });
+
+  it('says what is wrong, and saves nothing then', async () => {
+    const pune = await id('PUN');
+    const wrong = async (districts: unknown) => detailsOf(await save('batch', { size: 7, districts }));
+    expect(await wrong('x')).toEqual([{ field: 'body.districts', message: 'Districts must be a list' }]);
+    expect(await wrong([{ district_id: pune, size: 0 }])).toEqual([
+      { field: 'body.districts.0.size', message: 'Batch size must be at least 1' },
+    ]);
+    expect(await wrong([{ district_id: pune, size: 101 }])).toEqual([
+      { field: 'body.districts.0.size', message: 'Batch size must be at most 100' },
+    ]);
+    expect(await wrong([{ district_id: 'x', size: 5 }, { size: 5 }])).toEqual([
+      { field: 'body.districts.0.district_id', message: 'District is not valid' },
+      { field: 'body.districts.1.district_id', message: 'District is required' },
+    ]);
+    expect(
+      await wrong([
+        { district_id: pune, size: 5 },
+        { district_id: pune.toUpperCase(), size: 6 },
+      ]),
+    ).toEqual([{ field: 'body.districts.1.district_id', message: 'Each district may be listed only once' }]);
+    expect(
+      await wrong([
+        { district_id: pune, size: 5 },
+        { district_id: UNKNOWN_ID, size: 6 },
+      ]),
+    ).toEqual([{ field: 'body.districts.1.district_id', message: 'District not found' }]);
+    expect(await read('batch')).toMatchObject({ size: 30, districts: [] });
+  });
+
+  it('is for the ADMIN to change', async () => {
+    const res = await put('/manage/settings/batch', viewer.token, { size: 5, districts: [] });
+    expect(res.status).toBe(403);
   });
 });
 

@@ -1,27 +1,20 @@
 import { Api } from '../../http/api';
 import { panelOf } from '../../http/auth';
 import { ok } from '../../http/respond';
-import { loadProgram } from '../../program/masters';
-import { batchSettings, helpSettings, supportSettings, welcomeSettings } from '../../program/settings';
+import { helpSettings, supportSettings, welcomeSettings } from '../../program/settings';
 import { batchSizeBody, helpBody, supportBody, welcomeBody } from './settings.schemas';
-import { saveSettings } from './settings.service';
+import { batchRules, saveBatchSize, saveSettings } from './settings.service';
 
 /* The settings the panel edits: every panel user reads them, an ADMIN saves them. Students get them with GET /options. */
 export const settingsApi = new Api('Panel: settings');
 const api = settingsApi;
 
-/* The size, and whether each student of a batch must have a district (Masters → Form fields). */
-async function batchRules() {
-  const [size, program] = await Promise.all([batchSettings(), loadProgram()]);
-  return { ...size, district_required: program.requires('district_id') };
-}
-
 api.get(
   '/manage/settings/batch',
   {
     auth: 'panel',
-    summary: 'How many students a new batch has',
-    returns: '{ size, updated_at, updated_by, district_required } (null = never saved)',
+    summary: 'How many students a new batch has: the default, and the districts with a size of their own',
+    returns: '{ size, districts: { district_id, name, size }[], updated_at, updated_by, district_required } (null = never saved)',
   },
   async ({ res }) => ok(res, await batchRules()),
 );
@@ -29,12 +22,12 @@ api.put(
   '/manage/settings/batch',
   {
     auth: 'admin',
-    summary: 'Sets how many students a new batch has (existing batches keep theirs)',
-    returns: '{ size, updated_at, updated_by, district_required }',
+    summary: 'Sets how many students a new batch has (existing batches keep theirs); districts, when given, replace the list',
+    returns: 'as GET',
     body: batchSizeBody,
   },
   async ({ req, res, body }) => {
-    await saveSettings(req, panelOf(res), 'batch', body);
+    await saveBatchSize(req, panelOf(res), body);
     ok(res, await batchRules(), 'Batch size saved');
   },
 );

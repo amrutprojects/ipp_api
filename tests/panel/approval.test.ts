@@ -195,6 +195,7 @@ describe('the approval of one form', () => {
         to: { stage: 'BATCH', name: 'Batch' },
         reason: null,
         by: 'Program Auditor',
+        role: null,
         at: expect.any(String),
       },
     ]);

@@ -33,8 +33,8 @@ The portal uses it with `VITE_API_PROXY_TARGET=http://localhost:5101` in the por
 ## Layout
 
 ```
-src/config      environment                     src/program   the program's rules (masters, form, approval, checks, filters)
-src/http        endpoints, guards, errors       src/modules   student · panel · masters · health
+src/config      environment                     src/program   the program's rules (masters, form, approval, checks, link)
+src/http        endpoints, guards, errors       src/modules   student · panel · masters · link · health
 src/lib         tokens, passwords, Aadhaar, …   src/import    copy of the earlier system's data
 src/db          pool, migrations, seeds         src/services  storage, SMS, e-mail, audit
 ```
@@ -51,8 +51,21 @@ not be edited).
 | Panel ADMIN (the Auditor) | everything in the panel                                         |
 | Panel VIEWER              | views and downloads; every change is refused (403)              |
 
-Approval: every document verified → approved by the Auditor → in a batch (exactly the batch size, one district) → with the Divisional
-Officer. The officers' part (Divisional Officer, COEP, Head Office, Admin) is not in this backend yet; its stages are stored from the start.
+Approval: every document verified → approved by the Auditor → in a batch (of one district, exactly its batch size: Settings, a default and
+a size per district) → with the Divisional Officer → COEP → Head Office, or the Super Admin while Head Office approval is off → approved.
+The officers decide in **Sarthi**, a project of its own; a rejection comes back one level at a time.
+
+## The link to Sarthi
+
+Contract: [docs/SARTHI_LINK.md](docs/SARTHI_LINK.md). `src/program/link` signs, makes and sends the messages (an outbox in the database, a
+worker in every server process of which one sends at a time); `src/modules/link` answers Sarthi's signed calls (`/api/v1/link/…`).
+
+Switch it on with `SARTHI_LINK_ENABLED=true`, `SARTHI_API_URL` (https, without a path) and `SARTHI_LINK_SECRET` (the same on both servers; the
+server does not start while one is missing). Until then everything works and the messages wait. Panel → Settings → Sarthi connection shows what
+is not sent and why, tries it again and tests the connection; a batch shows whether Sarthi has it. Both servers need a right clock (NTP):
+a call older than five minutes is refused. nginx must pass `/api/v1/link/` on unchanged (the path is signed).
+
+Students who were further than the Divisional Officer before the link existed are not sent: Sarthi starts with the Divisional Officer.
 
 ## Security notes
 

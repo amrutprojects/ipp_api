@@ -12,6 +12,8 @@ import {
   syncDocumentsVerified,
   type DocumentCounts,
 } from '../../program/document-checks';
+import { enqueueApplications } from '../../program/link/outbox';
+import { kickLink } from '../../program/link/runtime';
 import { audit } from '../../services/audit';
 import { actor, applicationOf, FINALLY_APPROVED, lockedApplication, NO_FILE, studentAccount } from './common';
 
@@ -48,12 +50,18 @@ async function approveForms(
     db,
   );
   for (const p of moved) await recordMove(db, { applicationId: p.id, action: 'APPROVE', from: 'AUDITOR', to: p.stage, by: user });
+  /* Sent back before, and now with the Divisional Officer again. */
+  await enqueueApplications(
+    db,
+    'RESUBMIT',
+    moved.filter((p) => p.stage === 'DIVISION').map((p) => p.id),
+  );
   return { approved: moved.map((r) => r.id), waiting: counted.filter((r) => !allVerified(r)) };
 }
 
 /* One form; says why it cannot be approved (409). */
 export async function approve(req: Request, user: PanelUser, accountId: string) {
-  return transaction(async (db) => {
+  const result = await transaction(async (db) => {
     await studentAccount(accountId, db);
     const { approved, waiting } = await approveForms(db, user, [accountId]);
     if (waiting[0]) throw AppError.conflict(notVerifiedMessage(waiting[0]));
@@ -70,6 +78,8 @@ export async function approve(req: Request, user: PanelUser, accountId: string) 
     });
     return { approved: 1 };
   });
+  kickLink();
+  return result;
 }
 
 /*
@@ -77,7 +87,7 @@ export async function approve(req: Request, user: PanelUser, accountId: string) 
  * skipped.
  */
 export async function approveSelected(req: Request, user: PanelUser, accountIds: string[]) {
-  return transaction(async (db) => {
+  const result = await transaction(async (db) => {
     const { approved } = await approveForms(db, user, accountIds);
     if (approved.length)
       await audit.inTx(db, req, {
@@ -89,6 +99,8 @@ export async function approveSelected(req: Request, user: PanelUser, accountIds:
       });
     return { approved: approved.length, skipped: accountIds.length - approved.length };
   });
+  kickLink();
+  return result;
 }
 
 /*
@@ -96,7 +108,7 @@ export async function approveSelected(req: Request, user: PanelUser, accountIds:
  * it again keeps who verified it first, and when.
  */
 export async function verifyDocument(req: Request, user: PanelUser, accountId: string, code: string, verified: boolean) {
-  return transaction(async (db) => {
+  const result = await transaction(async (db) => {
     await studentAccount(accountId, db);
     const p = await lockedApplication(accountId, db);
     if (p?.status !== 'SUBMITTED') throw AppError.conflict("Only a submitted form's documents can be verified.");
@@ -110,6 +122,7 @@ export async function verifyDocument(req: Request, user: PanelUser, accountId: s
         )
       : await db.query(`DELETE FROM document_checks WHERE application_id = $1 AND document_code = $2`, [p.id, code]);
     const documents = await syncDocumentsVerified(db, p.id, user.id);
+    if (rowCount) await enqueueApplications(db, 'UPDATE', [p.id]);
     if (rowCount)
       await audit.inTx(db, req, {
         action: verified ? 'edp.document.verify' : 'edp.document.unverify',
@@ -120,4 +133,6 @@ export async function verifyDocument(req: Request, user: PanelUser, accountId: s
       });
     return { ...(await documentChecks(p.id, db))(code), documents };
   });
+  kickLink();
+  return result;
 }

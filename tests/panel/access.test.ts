@@ -35,6 +35,9 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['put', '/manage/settings/welcome', 'admin'],
   ['get', '/manage/settings/help', 'panel'],
   ['put', '/manage/settings/help', 'admin'],
+  ['get', '/manage/link', 'panel'],
+  ['post', '/manage/link/retry', 'admin'],
+  ['post', '/manage/link/test', 'admin'],
   ['get', '/manage/users', 'admin'],
   ['post', '/manage/users', 'admin'],
   ['patch', '/manage/users/:id/status', 'admin'],
@@ -53,10 +56,10 @@ beforeAll(async () => {
 afterAll(closeDatabase);
 
 describe('who may call the panel', () => {
-  it('has the 30 endpoints of the panel, each with its guard', () => {
+  it('has the 33 endpoints of the panel, each with its guard', () => {
     const sorted = (list: string[][]) => list.map((e) => e.join(' ')).sort();
     expect(sorted(declared().map((e) => [e.method, e.path, e.auth]))).toEqual(sorted(ENDPOINTS));
-    expect(ENDPOINTS).toHaveLength(30);
+    expect(ENDPOINTS).toHaveLength(33);
   });
 
   it.each(ENDPOINTS.filter(([, , auth]) => auth !== 'public'))('%s %s needs a panel session', async (method, path) => {
@@ -98,6 +101,7 @@ describe('who may call the panel', () => {
       '/manage/settings/support',
       '/manage/settings/welcome',
       '/manage/settings/help',
+      '/manage/link',
     ])
       expect([path, (await get(path, viewer.token)).status]).toEqual([path, 200]);
   });

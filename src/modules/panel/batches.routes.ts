@@ -13,7 +13,7 @@ api.get(
   {
     auth: 'panel',
     summary: 'The batches, newest first; search by code, name, center or district',
-    returns: 'Batch[], with meta { page, limit, total, totalPages, size: the batch size set now }',
+    returns: 'Batch[] (sync: whether Sarthi has it), with meta { page, limit, total, totalPages, size: the default batch size }',
     query: batchListQuery,
   },
   async ({ res, query }) => {
@@ -27,7 +27,7 @@ api.post(
   {
     auth: 'admin',
     summary:
-      'Makes a batch of exactly the batch size of approved students of one district, and sends it to the Divisional Officer',
+      'Makes a batch of approved students of one district, exactly as many as its batch size, and sends it to the Divisional Officer',
     returns: 'BatchDetail',
     body: createBatchBody,
     status: 201,

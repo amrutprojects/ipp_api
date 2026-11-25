@@ -133,7 +133,7 @@ describe('counts, filters and the list', () => {
       { code: 'DIVISION', label: 'With Divisional Officer' },
       { code: 'COEP', label: 'With COEP' },
       { code: 'HEAD_OFFICE', label: 'With Head Office' },
-      { code: 'ADMIN', label: 'With Admin (final approval)' },
+      { code: 'ADMIN', label: 'With Super Admin (final approval)' },
       { code: 'APPROVED', label: 'Final approved' },
     ]);
   });

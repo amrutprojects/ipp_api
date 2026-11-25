@@ -1,23 +1,41 @@
 import { z } from 'zod';
-import { content } from '../../lib/text';
+import { content, uuid } from '../../lib/text';
 import { BATCH_SIZE } from '../../program/constants';
 import { HELP_FIELDS_MAX } from '../../program/settings';
 import { blankToNull } from './common';
 
 /* What the panel's settings accept. */
 
-export const batchSizeBody = z
-  .object({
-    size: z
-      .number({ required_error: 'Batch size is required', invalid_type_error: 'Batch size must be a number' })
-      .int('Batch size must be a whole number')
-      .min(BATCH_SIZE.MIN, `Batch size must be at least ${BATCH_SIZE.MIN}`)
-      .max(BATCH_SIZE.MAX, `Batch size must be at most ${BATCH_SIZE.MAX}`),
-  })
-  .strict();
-
 const issue = (ctx: z.RefinementCtx, path: (string | number)[], message: string) =>
   ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
+
+const batchSize = z
+  .number({ required_error: 'Batch size is required', invalid_type_error: 'Batch size must be a number' })
+  .int('Batch size must be a whole number')
+  .min(BATCH_SIZE.MIN, `Batch size must be at least ${BATCH_SIZE.MIN}`)
+  .max(BATCH_SIZE.MAX, `Batch size must be at most ${BATCH_SIZE.MAX}`);
+
+/* The default size, and the districts with a size of their own: given, they replace the ones there are; left out, they stay. */
+export const batchSizeBody = z
+  .object({
+    size: batchSize,
+    districts: z
+      .array(z.object({ district_id: uuid('District'), size: batchSize }).strict(), {
+        invalid_type_error: 'Districts must be a list',
+      })
+      .max(500, 'At most 500 districts')
+      .optional(),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    const seen = new Set<string>();
+    v.districts?.forEach((d, i) => {
+      const id = d.district_id.toLowerCase();
+      if (seen.has(id)) issue(ctx, ['districts', i, 'district_id'], 'Each district may be listed only once');
+      seen.add(id);
+    });
+  });
+export type BatchSizeBody = z.infer<typeof batchSizeBody>;
 
 /* The contact line: a placeholder in the message needs its value. */
 export const supportBody = z

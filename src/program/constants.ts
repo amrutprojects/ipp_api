@@ -102,14 +102,16 @@ export type FollowUpStatus = keyof typeof FOLLOW_UP_STATUS;
 
 /*
  * A submitted form: the Auditor verifies each document and approves it (BATCH: waiting for a batch), then puts it into a
- * batch, which sends it on to the Divisional Officer → COEP → Head Office (unless optional) → Admin → APPROVED. A rejected
- * student goes back one stage, in the same batch; from the Divisional Officer, back to the Auditor (no stage), whose new
- * approval sends it straight to the Divisional Officer. The officers' part is not in this portal yet; its stages are stored
- * from the start.
+ * batch, which sends it on to the Divisional Officer → COEP → Head Office, or the Super Admin (stage ADMIN) while Head Office
+ * approval is off → APPROVED. A rejected student goes back one stage, in the same batch; from the Divisional Officer, back to
+ * the Auditor (no stage), whose new approval sends it straight to the Divisional Officer. The officers decide in Sarthi, a
+ * project of its own (program/link, docs/SARTHI_LINK.md).
  */
 export const OFFICER_STAGES = ['DIVISION', 'COEP', 'HEAD_OFFICE', 'ADMIN', 'APPROVED'] as const;
 export const APPROVAL_STAGES = ['BATCH', ...OFFICER_STAGES] as const;
 export type ApprovalStage = (typeof APPROVAL_STAGES)[number];
+/* A move between stages; MOVE = the final decision changed hands (Head Office approval switched on or off in Sarthi). */
+export type MoveAction = 'APPROVE' | 'REJECT' | 'MOVE';
 /* Where an approval event starts or ends: AUDITOR = with the Auditor (no stage). */
 export type StagePoint = 'AUDITOR' | ApprovalStage;
 export const STAGE_NAME: Record<StagePoint, string> = {
@@ -118,7 +120,7 @@ export const STAGE_NAME: Record<StagePoint, string> = {
   DIVISION: 'Divisional Officer',
   COEP: 'COEP',
   HEAD_OFFICE: 'Head Office',
-  ADMIN: 'Admin',
+  ADMIN: 'Super Admin',
   APPROVED: 'Final approval',
 };
 export const STAGE_STATUS: Record<ApprovalStage, string> = {
@@ -126,7 +128,7 @@ export const STAGE_STATUS: Record<ApprovalStage, string> = {
   DIVISION: 'With Divisional Officer',
   COEP: 'With COEP',
   HEAD_OFFICE: 'With Head Office',
-  ADMIN: 'With Admin (final approval)',
+  ADMIN: 'With Super Admin (final approval)',
   APPROVED: 'Final approved',
 };
 /* The "approval" filter: AWAITING = submitted, with the Auditor (RETURNED = of those, sent back); or a stage. */

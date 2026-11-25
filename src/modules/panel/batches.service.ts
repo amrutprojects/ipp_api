@@ -8,7 +8,9 @@ import { approvalDto, batchProgress, recordMove } from '../../program/approval';
 import { allVerified } from '../../program/document-checks';
 import { filterDto } from '../../program/filters';
 import { loadProgram } from '../../program/masters';
-import { batchSettings } from '../../program/settings';
+import { batchSync, enqueueBatch } from '../../program/link/outbox';
+import { kickLink } from '../../program/link/runtime';
+import { batchSettings, batchSizeOf } from '../../program/settings';
 import { audit } from '../../services/audit';
 import {
   findBatch,
@@ -23,8 +25,8 @@ import type { BatchListQuery, CreateBatchBody, UpdateBatchBody } from './batches
 import { actor, people } from './common';
 
 /*
- * Batches: a named group of exactly as many students as the batch size is set to (Settings), all of one district, at a center
- * of the Center Master. While the form does not require a district, students without one go with any; a batch of only such
+ * Batches: a named group of exactly as many students as the batch size of their district is set to (Settings: the default, or
+ * the district's own), all of one district, at a center of the Center Master. While the form does not require a district, students without one go with any; a batch of only such
  * students is of its center's district. The Auditor makes one of approved forms that wait for a batch, which sends them to
  * the Divisional Officer at once. Its students are fixed from then on (one sent back stays in it); its name, center, dates,
  * delivery mode and technology can be changed at any time.
@@ -47,10 +49,9 @@ async function orNameTaken<T>(work: () => Promise<T>): Promise<T> {
 
 /* Batches as listed, each with where its students are now. */
 async function batchDtos(list: BatchRow[], db: Db) {
-  const progress = await batchProgress(
-    list.map((b) => b.id),
-    db,
-  );
+  const ids = list.map((b) => b.id);
+  const progress = await batchProgress(ids, db);
+  const sync = await batchSync(ids, db);
   return list.map((b) => ({
     id: b.id,
     code: b.code,
@@ -59,6 +60,8 @@ async function batchDtos(list: BatchRow[], db: Db) {
     district: { id: b.district_id, name: b.district_name },
     size: b.size,
     ...progress.get(b.id)!,
+    /* Whether Sarthi has it as it is now; null = nothing was sent of it. */
+    sync: sync.get(b.id) ?? null,
     /* How many of its students chose another center than the batch's. */
     other_centre: b.other_centre,
     start_date: b.start_date,
@@ -150,18 +153,21 @@ function districtOf(candidates: CandidateRow[], required: boolean): string | nul
 /* A new batch; it is sent to the Divisional Officer at once. */
 export async function createBatch(req: Request, user: PanelUser, body: CreateBatchBody) {
   checkDates(body.start_date, body.end_date);
-  return orNameTaken(() =>
+  const made = await orNameTaken(() =>
     transaction(async (db) => {
-      const { size } = await batchSettings(db);
       const selected = body.ids.length;
-      if (selected !== size)
-        throw invalid('ids', `A batch must have exactly ${people(size)} (Settings → Batch size); ${selected} selected.`);
       const centre = await checkCentre(db, body.centre_id);
       const technology = body.technology ? await technologyId(db, body.technology) : null;
       /* Locked before they are checked: no edit, verification or other batch comes in between. */
       const candidates = await lockCandidates(body.ids, db);
       const required = (await loadProgram(db)).requires('district_id');
       const district = districtOf(candidates, required) ?? centre.district_id;
+      const { size, name: districtName } = await batchSizeOf(db, district);
+      if (selected !== size)
+        throw invalid(
+          'ids',
+          `A batch of ${districtName} must have exactly ${people(size)} (Settings → Batch size); ${selected} selected.`,
+        );
       if (await one(`SELECT 1 FROM batches WHERE lower(name) = lower($1) AND deleted_at IS NULL`, [body.name], db))
         throw nameTaken();
       const waiting = candidates.filter((c) => c.approval_stage === 'BATCH' && !c.batch_id);
@@ -194,6 +200,7 @@ export async function createBatch(req: Request, user: PanelUser, body: CreateBat
       );
       for (const c of waiting)
         await recordMove(db, { applicationId: c.id, action: 'APPROVE', from: 'BATCH', to: 'DIVISION', by: user });
+      await enqueueBatch(db, 'BATCH', made.id);
       await audit.inTx(db, req, {
         action: 'edp.batch.create',
         resource: 'batch',
@@ -204,11 +211,13 @@ export async function createBatch(req: Request, user: PanelUser, body: CreateBat
       return batch(made.id, db);
     }),
   );
+  kickLink();
+  return made;
 }
 
 /* Changes what is given of a batch, never its students. A center or a technology no longer offered stays while unchanged. */
 export async function updateBatch(req: Request, user: PanelUser, id: string, body: UpdateBatchBody) {
-  return orNameTaken(() =>
+  const saved = await orNameTaken(() =>
     transaction(async (db) => {
       const before = (await lockBatch(id, db)) && (await findBatch(id, db));
       if (!before) throw AppError.notFound('Batch not found');
@@ -233,6 +242,7 @@ export async function updateBatch(req: Request, user: PanelUser, id: string, bod
            updated_by = $8 WHERE id = $1`,
         [id, after.name, after.centre_id, after.start_date, after.end_date, after.delivery_mode, after.technology_id, user.id],
       );
+      await enqueueBatch(db, 'BATCH_UPDATE', id);
       await audit.inTx(db, req, {
         action: 'edp.batch.update',
         resource: 'batch',
@@ -243,4 +253,6 @@ export async function updateBatch(req: Request, user: PanelUser, id: string, bod
       return batch(id, db);
     }),
   );
+  kickLink();
+  return saved;
 }

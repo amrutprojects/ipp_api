@@ -1,6 +1,7 @@
 import path from 'node:path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import { linkProblems } from './link';
 
 /* The project folder (src/config or dist/config is two levels below it). */
 export const projectRoot = path.resolve(__dirname, '..', '..');
@@ -94,6 +95,12 @@ const schema = z.object({
   AWS_SECRET_ACCESS_KEY: blank(z.string().optional()),
   AWS_KEY_PREFIX: z.string().default(''),
 
+  /* The link to Sarthi, where the officers decide (docs/SARTHI_LINK.md). The secret is the same on both servers. */
+  SARTHI_LINK_ENABLED: flag(false),
+  SARTHI_API_URL: blank(z.string().url().optional()),
+  SARTHI_LINK_SECRET: blank(z.string().min(32, 'SARTHI_LINK_SECRET must be at least 32 characters').optional()),
+  SARTHI_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
+
   /* First contact details shown to students until the panel sets its own. */
   SUPPORT_EMAIL: blank(z.string().email().optional()),
   SUPPORT_MOBILE: blank(z.string().optional()),
@@ -115,6 +122,7 @@ const stop = (message: string): never => {
 };
 if (raw.STORAGE_DRIVER === 's3' && (!raw.AWS_REGION || !raw.AWS_BUCKET_NAME))
   stop('STORAGE_DRIVER=s3 needs AWS_REGION and AWS_BUCKET_NAME');
+for (const problem of linkProblems(raw)) stop(problem);
 if (['staging', 'production'].includes(raw.NODE_ENV) && /CHANGE_ME/i.test(raw.SESSION_SECRET + raw.DB_PASSWORD))
   stop('Refusing to start with placeholder secrets from .env.example');
 

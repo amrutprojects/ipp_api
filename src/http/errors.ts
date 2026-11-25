@@ -14,6 +14,8 @@ export const ERROR_CODES = {
   RATE_LIMITED: 'RATE_LIMITED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+  LINK_UNAUTHORIZED: 'LINK_UNAUTHORIZED',
+  LINK_NOT_CONFIGURED: 'LINK_NOT_CONFIGURED',
 } as const;
 
 /* A field of the request that is wrong: `body.first_name`, `query.mobile`, `files.PHOTO`. */

@@ -5,7 +5,8 @@ import type { PanelUser } from '../../http/auth';
 import { decryptAadhaar, maskAadhaar } from '../../lib/aadhaar';
 import { blankAsMissing, listQuery } from '../../lib/paging';
 import { hasControlChars, uuid } from '../../lib/text';
-import { CUSTOM_KEY_PREFIX, type ApprovalStage, type Form } from '../../program/constants';
+import type { ApprovalStage, Form } from '../../program/constants';
+import { storedForm } from '../../program/form';
 import type { Program } from '../../program/masters';
 import { candidateFolder } from '../../program/uploads';
 import type { Actor } from '../../services/audit';
@@ -117,20 +118,8 @@ export const lockedApplication = (accountId: string, db: Db) => one<Application>
 
 /* ---------------------------------------------------------------------------------------------------------------- form */
 
-/*
- * The form as the application holds it: every field of the program ('' when it has no value; always of the Aadhaar number),
- * and the values of own fields deleted since.
- */
-export function formOf(p: Application | null, program: Program): Form {
-  const data = p?.data ?? {};
-  const keys = [...program.fields.map((f) => f.key), ...Object.keys(data).filter((k) => k.startsWith(CUSTOM_KEY_PREFIX))];
-  return Object.fromEntries(
-    keys.map((k) => {
-      const v = data[k];
-      return [k, typeof v === 'string' ? v : ''];
-    }),
-  );
-}
+/* The form as the application holds it. */
+export const formOf = (p: Application | null, program: Program): Form => storedForm(program, p?.data ?? {});
 
 /* The Aadhaar number in full: to check a change of it, never to be answered. */
 export const aadhaarOf = (p: Application | null): string => (p?.aadhaar_enc ? decryptAadhaar(p.aadhaar_enc) : '');

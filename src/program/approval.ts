@@ -1,5 +1,5 @@
 import { pool, rows, type Db } from '../db/pool';
-import { STAGE_NAME, STAGE_STATUS, type ApprovalStage, type StagePoint } from './constants';
+import { STAGE_NAME, STAGE_STATUS, type ApprovalStage, type MoveAction, type StagePoint } from './constants';
 
 /*
  * A submitted form's approval as the lists show it: its stage, the Auditor's approval, the latest event (who moved it where,
@@ -23,7 +23,7 @@ export interface ApprovalRow {
   stage_updated_at: Date | null;
   approved_at: Date | null;
   approved_by_name: string | null;
-  last_action: 'APPROVE' | 'REJECT' | null;
+  last_action: MoveAction | null;
   last_from: StagePoint | null;
   last_to: StagePoint | null;
   last_reason: string | null;
@@ -63,14 +63,15 @@ export const approvalDto = (r: ApprovalRow) => ({
 /* Every move of one application between stages, newest first. */
 export async function approvalHistory(applicationId: string, db: Db = pool) {
   const events = await rows<{
-    action: 'APPROVE' | 'REJECT';
+    action: MoveAction;
     from_stage: StagePoint;
     to_stage: StagePoint;
     reason: string | null;
     by: string | null;
+    role: string | null;
     created_at: Date;
   }>(
-    `SELECT e.action, e.from_stage, e.to_stage, e.reason, coalesce(e.actor_name, u.name) AS by, e.created_at
+    `SELECT e.action, e.from_stage, e.to_stage, e.reason, coalesce(e.actor_name, u.name) AS by, e.actor_role AS role, e.created_at
      FROM approval_events e LEFT JOIN panel_users u ON u.id = e.panel_user_id
      WHERE e.application_id = $1 ORDER BY e.seq DESC`,
     [applicationId],
@@ -82,6 +83,8 @@ export async function approvalHistory(applicationId: string, db: Db = pool) {
     to: point(e.to_stage),
     reason: e.reason,
     by: e.by,
+    /* An officer's role in Sarthi; null = somebody of this panel. */
+    role: e.role,
     at: e.created_at,
   }));
 }
@@ -117,6 +120,26 @@ export async function batchProgress(ids: string[], db: Db = pool): Promise<Map<s
     b.rejected += r.rejected;
   }
   return out;
+}
+
+/* Records the move an officer made in Sarthi, at the time it was made (inside the transaction that repeats it here). */
+export async function recordOfficerMove(
+  db: Db,
+  move: {
+    applicationId: string;
+    action: MoveAction;
+    from: StagePoint;
+    to: StagePoint;
+    reason: string | null;
+    by: { name: string; role: string };
+    at: Date;
+  },
+): Promise<void> {
+  await db.query(
+    `INSERT INTO approval_events (application_id, action, from_stage, to_stage, reason, actor_kind, actor_name, actor_role, created_at)
+     VALUES ($1, $2, $3, $4, $5, 'OFFICER', $6, $7, least($8::timestamptz, now()))`,
+    [move.applicationId, move.action, move.from, move.to, move.reason, move.by.name, move.by.role, move.at],
+  );
 }
 
 /* Records a move between stages by a panel user (inside the transaction that makes it). */

@@ -8,6 +8,7 @@ import { env } from './config/env';
 import { errorHandler, limiter, notFound, REQUEST_ID_HEADER, requestId } from './http/middleware';
 import { logger } from './lib/logger';
 import { healthRouter } from './modules/health/health.routes';
+import { linkRouter } from './modules/link';
 import { portalRouter } from './routes';
 import { mountDocs } from './openapi';
 
@@ -42,6 +43,8 @@ export function createApp(): Express {
   );
   app.use(compression({ filter: (req, res) => !req.path.endsWith('.zip') && compression.filter(req, res) }));
   app.use(`${config.apiPrefix}/health`, healthRouter);
+  /* Sarthi's server: signed calls, many from one address, with a limit of their own. */
+  app.use(`${config.apiPrefix}/link`, linkRouter());
   app.use(limiter(config.rateLimit.max));
   app.use(express.json({ limit: '100kb' }));
 

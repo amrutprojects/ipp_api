@@ -4,6 +4,7 @@ import { config } from './config';
 import { pending } from './db/migrate';
 import { pool } from './db/pool';
 import { logger } from './lib/logger';
+import { startLink, stopLink } from './program/link/runtime';
 
 /* Starts only on a database that is up to date; stops cleanly (requests in progress are finished first). */
 async function start(): Promise<void> {
@@ -18,6 +19,7 @@ async function start(): Promise<void> {
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 70_000;
   server.listen(config.port, () => logger.info({ port: config.port, prefix: config.apiPrefix }, 'server listening'));
+  await startLink();
 
   let stopping = false;
   const stop = (signal: string) => {
@@ -25,8 +27,9 @@ async function start(): Promise<void> {
     stopping = true;
     logger.info({ signal }, 'shutting down');
     setTimeout(() => process.exit(1), 15_000).unref();
+    const linkDone = stopLink();
     server.close(() => {
-      void pool.end().finally(() => process.exit(0));
+      void linkDone.then(() => pool.end()).finally(() => process.exit(0));
     });
     server.closeIdleConnections();
   };
