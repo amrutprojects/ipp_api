@@ -18,7 +18,7 @@ const texts = {
   help_mr: optionalNamed('Marathi help text', 300),
 };
 
-/* The checks of an own field (program/validation.ts): that they fit and can be run is the service's to say. */
+/* The checks of a field (program/validation.ts): that they fit and can be run is the service's to say. */
 const source = z
   .string({ required_error: 'Write the check', invalid_type_error: 'The check must be text' })
   .max(2000, 'The check must be at most 2000 characters')
@@ -102,7 +102,7 @@ export const newFieldBody = z
   });
 export type NewFieldBody = z.infer<typeof newFieldBody>;
 
-/* Which of these a field takes depends on it: fields.service.ts. */
+/* Which types a field takes depends on it: fields.service.ts. */
 export const updateFieldBody = z
   .object({
     ...texts,

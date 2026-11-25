@@ -1,7 +1,8 @@
 import { one, transaction, type Db } from '../../db/pool';
 import { AppError } from '../../http/errors';
+import { byType, typesOf } from '../../program/built-in';
 import { CUSTOM_KEY_PREFIX, CUSTOM_SLUG_MAX, fieldOptionKind, ORDER_MAX } from '../../program/constants';
-import { hasChoices, typeIssue } from '../../program/field-types';
+import { typeIssue } from '../../program/field-types';
 import { loadProgram, optionsKind, type ProgramField } from '../../program/masters';
 import { validationIssue } from '../../program/validation';
 import { lock, orConflict, record, type By } from './common.service';
@@ -10,13 +11,13 @@ import { checkedValidation, keptFor, stored } from './validation.service';
 import { addChoices } from './options.service';
 
 /*
- * The form's fields. A core field is part of every form: only its labels, help texts and order change. The program's other
- * fields can also be made optional and switched off. The ones an ADMIN adds (key x_…) can be changed in everything and
- * deleted; the answers already given stay stored with their forms.
+ * The form's fields. Every one can be changed in everything: its labels, help texts, order, step, type, checks, and whether it
+ * is required and asked at all. Only the types of some of the program's own are limited (built-in.ts: typesOf). The ones an
+ * ADMIN adds (key x_…) can be deleted too; the answers already given stay stored with their forms.
  */
-const CORE_ONLY = 'This field is part of every form: only its labels, help text and order can be changed.';
-const BUILT_IN_ONLY = 'Only the labels, help text, order, required and active of this field can be changed.';
-const NOT_DELETABLE = 'This field is part of the form and cannot be deleted. Switch it off instead.';
+const NOT_THIS_TYPE = 'This field cannot have this type';
+const CHOICES_ELSEWHERE = 'The choices of this field are a list of their own: change them there.';
+const NOT_DELETABLE = 'This field comes with the program and cannot be deleted. Switch it off instead.';
 
 const fieldDto = (f: ProgramField) => ({
   id: f.id,
@@ -27,9 +28,10 @@ const fieldDto = (f: ProgramField) => ({
   required: f.required,
   is_active: f.isActive,
   order: f.displayOrder,
-  core: f.isCore,
   custom: f.isCustom,
+  by_type: byType(f),
   type: f.type,
+  types: typesOf(f),
   options_kind: optionsKind(f),
   help_en: f.helpEn,
   help_mr: f.helpMr,
@@ -40,7 +42,7 @@ const fieldDto = (f: ProgramField) => ({
 async function getField(db: Db, id: string): Promise<ProgramField> {
   const row = await one<ProgramField>(
     `SELECT id, key, step, type, label_en AS "labelEn", label_mr AS "labelMr", required, is_active AS "isActive",
-            display_order AS "displayOrder", is_core AS "isCore", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation
+            display_order AS "displayOrder", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation
      FROM program_fields WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
     [id],
     db,
@@ -109,17 +111,14 @@ export const fieldsService = {
     return orConflict({ uq_program_options_name: 'A choice with this name is already in the list.' }, () =>
       transaction(async (db) => {
         const before = await getField(db, id);
-        /* What else is sent may only repeat what is already there (a form that sends every value). */
-        const differs = (key: 'required' | 'is_active' | 'step' | 'type') =>
-          body[key] !== undefined &&
-          body[key] !== { required: before.required, is_active: before.isActive, step: before.step, type: before.type }[key];
-        const ownOnly = differs('step') || differs('type') || !!body.options || body.validation !== undefined;
-        if (before.isCore && (differs('required') || differs('is_active') || ownOnly)) throw AppError.conflict(CORE_ONLY);
-        if (!before.isCustom && ownOnly) throw AppError.conflict(BUILT_IN_ONLY);
-
         const type = body.type ?? before.type;
-        if (body.options?.length && !hasChoices(type))
-          throw AppError.validation([{ field: 'body.options', message: NO_CHOICES_HERE }]);
+        if (type !== before.type && !typesOf(before).includes(type))
+          throw AppError.validation([{ field: 'body.type', message: NOT_THIS_TYPE }]);
+        /* Whose choices it will have: its own, a list of the Masters, or none. */
+        const kind = optionsKind({ ...before, type });
+        const ownChoices = kind === fieldOptionKind(before.key);
+        if (body.options?.length && !ownChoices)
+          throw AppError.validation([{ field: 'body.options', message: kind ? CHOICES_ELSEWHERE : NO_CHOICES_HERE }]);
         await db.query(
           `UPDATE program_fields SET label_en = $2, label_mr = $3, help_en = $4, help_mr = $5, display_order = $6, required = $7,
              is_active = $8, step = $9, type = $10, validation = $11::jsonb WHERE id = $1`,
@@ -141,12 +140,8 @@ export const fieldsService = {
         );
         if (body.options?.length) await addChoices(db, before.key, body.options);
         /* It becomes a field with choices: with the ones sent, or the ones it had before. */
-        if (differs('type') && hasChoices(type)) {
-          const choice = await one(
-            'SELECT 1 FROM program_options WHERE kind = $1 AND deleted_at IS NULL LIMIT 1',
-            [fieldOptionKind(before.key)],
-            db,
-          );
+        if (type !== before.type && ownChoices) {
+          const choice = await one('SELECT 1 FROM program_options WHERE kind = $1 AND deleted_at IS NULL LIMIT 1', [kind], db);
           if (!choice) throw AppError.validation([{ field: 'body.options', message: NO_CHOICES }]);
         }
         await record(db, who, 'edp.field.update', 'program_fields', id, { key: before.key, fields: Object.keys(body) });
@@ -168,7 +163,7 @@ export const fieldsService = {
   remove(who: By, id: string) {
     return transaction(async (db) => {
       const field = await getField(db, id);
-      if (!field.isCustom) throw AppError.conflict(field.isCore ? CORE_ONLY : NOT_DELETABLE);
+      if (!field.isCustom) throw AppError.conflict(NOT_DELETABLE);
       await db.query('UPDATE program_fields SET deleted_at = now(), is_active = false WHERE id = $1', [id]);
       await record(db, who, 'edp.field.delete', 'program_fields', id, { key: field.key });
     });

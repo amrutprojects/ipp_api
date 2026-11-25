@@ -382,13 +382,13 @@ describe('Masters → Form fields', () => {
     });
   });
 
-  it('only for own fields, by an ADMIN', async () => {
+  it('for any field, by an ADMIN', async () => {
     const landmark = (await pool.query<{ id: string }>(`SELECT id FROM program_fields WHERE key = 'landmark'`)).rows[0]!.id;
-    const res = await request('patch', `/manage/fields/${landmark}`, admin.token).send({
-      validation: { rules: [{ type: 'letters' }] },
-    });
-    expect(res.status).toBe(409);
+    const validation = { rules: [{ type: 'letters' }] };
+    const res = await request('patch', `/manage/fields/${landmark}`, admin.token).send({ validation });
+    expect([res.status, res.body.data.validation]).toEqual([200, { ...validation, custom: [] }]);
     const viewer = await makePanelUser('VIEWER');
+    expect((await request('patch', `/manage/fields/${landmark}`, viewer.token).send({ validation })).status).toBe(403);
     expect((await request('post', '/manage/fields/test-validation', viewer.token).send({})).status).toBe(403);
   });
 
@@ -441,8 +441,8 @@ describe('Masters → Form fields', () => {
     expect((await request('get', '/options')).body.data.lists[kind]).toHaveLength(2);
   });
 
-  it('keeps the new types for own fields', async () => {
-    await expect(pool.query(`UPDATE program_fields SET type = 'RADIO' WHERE key = 'gender'`)).rejects.toThrow(
+  it('knows the types there are', async () => {
+    await expect(pool.query(`UPDATE program_fields SET type = 'FILE' WHERE key = 'gender'`)).rejects.toThrow(
       /ck_program_fields_type/,
     );
   });

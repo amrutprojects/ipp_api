@@ -67,9 +67,9 @@ async function fields(db: Db): Promise<number> {
     for (const [i, f] of FIELDS[step].entries())
       n += await add(
         db,
-        `INSERT INTO program_fields (key, step, type, label_en, label_mr, required, is_core, display_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING`,
-        [f.key, step, f.type, f.labelEn, f.labelMr, f.required, f.core, place(i)],
+        `INSERT INTO program_fields (key, step, type, label_en, label_mr, required, display_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
+        [f.key, step, f.type, f.labelEn, f.labelMr, f.required, place(i)],
       );
   return n;
 }

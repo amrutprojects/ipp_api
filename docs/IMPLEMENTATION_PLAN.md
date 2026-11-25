@@ -53,8 +53,8 @@ pino, vitest + supertest. Port 5101.
 | `program_options`, `district_technologies`, `program_documents`, `program_fields` | dropdowns, technologies per district, documents, form fields |
 | `settings` | batch size, support, welcome, help |
 
-Constraints keep impossible states out (a draft with a stage, a stage past BATCH without a batch, a submitted form without its Aadhaar
-index, two submitted forms of one Aadhaar, a deleted master that is active, …). `district_id`, `caste_id` and `centre_id` of a form are
+Constraints keep impossible states out (a draft with a stage, a stage past BATCH without a batch, a submitted form with a part of its Aadhaar
+only, two submitted forms of one Aadhaar, a deleted master that is active, …). `district_id`, `caste_id` and `centre_id` of a form are
 generated columns, so the filters never differ from the form.
 
 ## 4. Endpoints (83)
@@ -119,6 +119,19 @@ expression or a JavaScript function with its own message in both languages.
 Own checks run only on the server, in QuickJS (WebAssembly): no files, network, environment or database, 4 MB of memory, 50 ms; a runaway
 expression or function is cut off and the answer is then not accepted. A function's source never leaves the server; an expression is also
 checked in the student's browser. Checks are compiled and tried when they are saved, and can be tried on a value before that.
+
+### No field is fixed (25 Nov 2026, on request; replaces the "core" fields of analysis 01 and 03)
+
+Each of the program's 36 fields is changed like an own field: labels, help texts, order, step, required, on / off, checks and type. They are not
+deleted (off does the same and can be undone). Which types a field can have (`src/program/built-in.ts`, sent as `types`):
+
+- name, mobile number, e-mail (the account has the same), Aadhaar number (stored apart) and Person with Disability: only their own;
+- a field of a list of the Masters, districts or centers: dropdown or radio buttons;
+- any other: all 15. Given another type than it comes with, it is checked by that type alone (`by_type`), with choices of its own.
+
+What the rest of the program does without a field's value: the account's name and mobile number are used; a form without an Aadhaar number has no
+index, so a second form of the same person is not noticed; while District is off or optional, a batch of students without one is of its center's
+district; every technology is offered without a district.
 
 ## 8. Steps
 

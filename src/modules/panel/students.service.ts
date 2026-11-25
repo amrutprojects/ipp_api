@@ -142,7 +142,7 @@ export async function student(accountId: string, user: PanelUser) {
   const [program, p] = await Promise.all([loadProgram(), applicationOf(accountId)]);
   const form = formOf(p, program);
   const masked = aadhaarMasked(p);
-  form.email ||= account.email;
+  if (program.field('email')?.isActive) form.email ||= account.email;
   const [names, files, check, rest] = await Promise.all([
     referenceNames(program, form),
     p ? storedFiles(program, p.id) : [],

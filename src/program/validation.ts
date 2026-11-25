@@ -6,7 +6,7 @@ import { chosen, CUSTOM_VALUE_MAX, YEARS } from './field-types';
 import { answer, matches } from './sandbox';
 
 /*
- * The checks an ADMIN gives to an own field: ready-made rules, any number of them, and own checks (a regular expression or a
+ * The checks an ADMIN gives to a field: ready-made rules, any number of them, and own checks (a regular expression or a
  * JavaScript function), each with its own message. They are applied to a value that is given and of the field's type.
  */
 export const RULE_TYPES = [

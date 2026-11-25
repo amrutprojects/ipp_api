@@ -17,7 +17,6 @@ export interface SeedField {
   labelMr: string;
   type: 'TEXT' | 'TEXTAREA' | 'NUMBER' | 'DATE' | 'DROPDOWN';
   required: boolean;
-  core: boolean;
 }
 
 export const STATE = { code: 'MH', name: 'Maharashtra' };
@@ -231,41 +230,39 @@ export const DOCUMENTS: SeedDocument[] = [
   },
 ];
 
-/* The fields of steps 1 and 2. Core: always shown and required (only labels, help and order can be changed). */
+/* The fields of steps 1 and 2, as they start: the Auditor can change each of them (program/built-in.ts). */
 export const FIELDS: Record<1 | 2, SeedField[]> = {
   1: [
-    { key: 'first_name', labelEn: 'First Name', labelMr: 'पहिले नाव', type: 'TEXT', required: true, core: true },
-    { key: 'last_name', labelEn: 'Last Name', labelMr: 'आडनाव', type: 'TEXT', required: true, core: true },
-    { key: 'father_name', labelEn: 'Father Name', labelMr: 'वडिलांचे नाव', type: 'TEXT', required: true, core: true },
-    { key: 'mother_name', labelEn: 'Mother Name', labelMr: 'आईचे नाव', type: 'TEXT', required: true, core: true },
-    { key: 'email', labelEn: 'Email', labelMr: 'ईमेल आयडी', type: 'TEXT', required: true, core: true },
-    { key: 'date_of_birth', labelEn: 'Date of Birth', labelMr: 'जन्मतारीख', type: 'DATE', required: true, core: true },
-    { key: 'current_address', labelEn: 'Current Address', labelMr: 'सध्याचा पत्ता', type: 'TEXTAREA', required: true, core: true },
+    { key: 'first_name', labelEn: 'First Name', labelMr: 'पहिले नाव', type: 'TEXT', required: true },
+    { key: 'last_name', labelEn: 'Last Name', labelMr: 'आडनाव', type: 'TEXT', required: true },
+    { key: 'father_name', labelEn: 'Father Name', labelMr: 'वडिलांचे नाव', type: 'TEXT', required: true },
+    { key: 'mother_name', labelEn: 'Mother Name', labelMr: 'आईचे नाव', type: 'TEXT', required: true },
+    { key: 'email', labelEn: 'Email', labelMr: 'ईमेल आयडी', type: 'TEXT', required: true },
+    { key: 'date_of_birth', labelEn: 'Date of Birth', labelMr: 'जन्मतारीख', type: 'DATE', required: true },
+    { key: 'current_address', labelEn: 'Current Address', labelMr: 'सध्याचा पत्ता', type: 'TEXTAREA', required: true },
     {
       key: 'permanent_address',
       labelEn: 'Permanent Address',
       labelMr: 'कायमचा पत्ता',
       type: 'TEXTAREA',
       required: true,
-      core: false,
     },
-    { key: 'landmark', labelEn: 'Landmark', labelMr: 'जवळची खूण', type: 'TEXT', required: false, core: false },
-    { key: 'pin_code', labelEn: 'PIN Code', labelMr: 'पिन कोड', type: 'TEXT', required: true, core: false },
-    { key: 'district_id', labelEn: 'District', labelMr: 'जिल्हा', type: 'DROPDOWN', required: true, core: true },
-    { key: 'taluka', labelEn: 'Taluka', labelMr: 'तालुका', type: 'TEXT', required: false, core: false },
-    { key: 'aadhaar_number', labelEn: 'Aadhaar Number', labelMr: 'आधार क्रमांक', type: 'TEXT', required: true, core: true },
-    { key: 'mobile_number', labelEn: 'Mobile Number', labelMr: 'मोबाईल क्रमांक', type: 'TEXT', required: true, core: true },
-    { key: 'religion', labelEn: 'Religion', labelMr: 'धर्म', type: 'DROPDOWN', required: true, core: true },
-    { key: 'caste_id', labelEn: 'Caste', labelMr: 'जात', type: 'DROPDOWN', required: true, core: true },
-    { key: 'gender', labelEn: 'Gender', labelMr: 'लिंग', type: 'DROPDOWN', required: true, core: false },
-    { key: 'marital_status', labelEn: 'Marital Status', labelMr: 'वैवाहिक स्थिती', type: 'DROPDOWN', required: true, core: false },
+    { key: 'landmark', labelEn: 'Landmark', labelMr: 'जवळची खूण', type: 'TEXT', required: false },
+    { key: 'pin_code', labelEn: 'PIN Code', labelMr: 'पिन कोड', type: 'TEXT', required: true },
+    { key: 'district_id', labelEn: 'District', labelMr: 'जिल्हा', type: 'DROPDOWN', required: true },
+    { key: 'taluka', labelEn: 'Taluka', labelMr: 'तालुका', type: 'TEXT', required: false },
+    { key: 'aadhaar_number', labelEn: 'Aadhaar Number', labelMr: 'आधार क्रमांक', type: 'TEXT', required: true },
+    { key: 'mobile_number', labelEn: 'Mobile Number', labelMr: 'मोबाईल क्रमांक', type: 'TEXT', required: true },
+    { key: 'religion', labelEn: 'Religion', labelMr: 'धर्म', type: 'DROPDOWN', required: true },
+    { key: 'caste_id', labelEn: 'Caste', labelMr: 'जात', type: 'DROPDOWN', required: true },
+    { key: 'gender', labelEn: 'Gender', labelMr: 'लिंग', type: 'DROPDOWN', required: true },
+    { key: 'marital_status', labelEn: 'Marital Status', labelMr: 'वैवाहिक स्थिती', type: 'DROPDOWN', required: true },
     {
       key: 'alternate_mobile_number',
       labelEn: 'Alternate Mobile Number',
       labelMr: 'पर्यायी मोबाईल क्रमांक',
       type: 'TEXT',
       required: false,
-      core: false,
     },
     {
       key: 'alternate_email',
@@ -273,7 +270,6 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'पर्यायी ईमेल आयडी',
       type: 'TEXT',
       required: false,
-      core: false,
     },
     {
       key: 'disability_status',
@@ -281,7 +277,6 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'दिव्यांग व्यक्ती',
       type: 'DROPDOWN',
       required: true,
-      core: false,
     },
     {
       key: 'disability_type',
@@ -289,7 +284,6 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'दिव्यांगत्वाचा प्रकार',
       type: 'TEXT',
       required: true,
-      core: false,
     },
     {
       key: 'disability_certificate_number',
@@ -297,20 +291,18 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'दिव्यांग प्रमाणपत्र क्रमांक',
       type: 'TEXT',
       required: true,
-      core: false,
     },
   ],
   2: [
-    { key: 'region_id', labelEn: 'Course District', labelMr: 'अभ्यासक्रमाचा जिल्हा', type: 'DROPDOWN', required: true, core: true },
-    { key: 'centre_id', labelEn: 'Center Name', labelMr: 'केंद्राचे नाव', type: 'DROPDOWN', required: true, core: true },
-    { key: 'technology', labelEn: 'Technology', labelMr: 'तंत्रज्ञान', type: 'DROPDOWN', required: true, core: true },
+    { key: 'region_id', labelEn: 'Course District', labelMr: 'अभ्यासक्रमाचा जिल्हा', type: 'DROPDOWN', required: true },
+    { key: 'centre_id', labelEn: 'Center Name', labelMr: 'केंद्राचे नाव', type: 'DROPDOWN', required: true },
+    { key: 'technology', labelEn: 'Technology', labelMr: 'तंत्रज्ञान', type: 'DROPDOWN', required: true },
     {
       key: 'education_id',
       labelEn: 'Education Qualification',
       labelMr: 'शैक्षणिक पात्रता',
       type: 'DROPDOWN',
       required: true,
-      core: true,
     },
     {
       key: 'educational_status',
@@ -318,7 +310,6 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'शैक्षणिक स्थिती',
       type: 'DROPDOWN',
       required: true,
-      core: false,
     },
     {
       key: 'qualification_name',
@@ -326,7 +317,6 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'पात्रतेचे नाव',
       type: 'TEXT',
       required: true,
-      core: false,
     },
     {
       key: 'qualification_stream',
@@ -334,7 +324,6 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'विषय / शाखा',
       type: 'TEXT',
       required: true,
-      core: false,
     },
     {
       key: 'qualification_board',
@@ -342,7 +331,6 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'महाविद्यालयाचे नाव',
       type: 'TEXT',
       required: true,
-      core: false,
     },
     {
       key: 'qualification_completed_on',
@@ -350,11 +338,10 @@ export const FIELDS: Record<1 | 2, SeedField[]> = {
       labelMr: 'पात्रता पूर्ण झाल्याची तारीख',
       type: 'DATE',
       required: true,
-      core: false,
     },
-    { key: 'grading_type', labelEn: 'Grading Type', labelMr: 'गुणांकन प्रकार', type: 'DROPDOWN', required: true, core: false },
-    { key: 'cgpa_scale', labelEn: 'CGPA Scale', labelMr: 'सीजीपीए मापन', type: 'DROPDOWN', required: true, core: false },
-    { key: 'score', labelEn: 'Score', labelMr: 'गुण', type: 'NUMBER', required: true, core: false },
-    { key: 'qualification_class', labelEn: 'Class / Division', labelMr: 'श्रेणी', type: 'DROPDOWN', required: true, core: false },
+    { key: 'grading_type', labelEn: 'Grading Type', labelMr: 'गुणांकन प्रकार', type: 'DROPDOWN', required: true },
+    { key: 'cgpa_scale', labelEn: 'CGPA Scale', labelMr: 'सीजीपीए मापन', type: 'DROPDOWN', required: true },
+    { key: 'score', labelEn: 'Score', labelMr: 'गुण', type: 'NUMBER', required: true },
+    { key: 'qualification_class', labelEn: 'Class / Division', labelMr: 'श्रेणी', type: 'DROPDOWN', required: true },
   ],
 };

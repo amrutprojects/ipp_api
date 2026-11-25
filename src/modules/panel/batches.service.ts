@@ -24,9 +24,10 @@ import { actor, people } from './common';
 
 /*
  * Batches: a named group of exactly as many students as the batch size is set to (Settings), all of one district, at a center
- * of the Center Master. The Auditor makes one of approved forms that wait for a batch, which sends them to the Divisional
- * Officer at once. Its students are fixed from then on (one sent back stays in it); its name, center, dates, delivery mode
- * and technology can be changed at any time.
+ * of the Center Master. While the form does not require a district, students without one go with any; a batch of only such
+ * students is of its center's district. The Auditor makes one of approved forms that wait for a batch, which sends them to
+ * the Divisional Officer at once. Its students are fixed from then on (one sent back stays in it); its name, center, dates,
+ * delivery mode and technology can be changed at any time.
  */
 
 const NAME_TAKEN = 'A batch with this name already exists. Choose another name.';
@@ -106,15 +107,16 @@ export async function batch(id: string, db: Db = pool) {
 
 /* --------------------------------------------------------------------------------------------------------------- checks */
 
-/* A center a batch may be placed at; kept from being switched off or deleted until the batch is saved. */
-async function checkCentre(db: Db, id: string): Promise<void> {
-  const centre = await one<{ is_active: boolean; gone: boolean }>(
-    `SELECT is_active, (deleted_at IS NOT NULL) AS gone FROM centres WHERE id = $1 FOR SHARE`,
+/* A center a batch may be placed at (its district); kept from being switched off or deleted until the batch is saved. */
+async function checkCentre(db: Db, id: string): Promise<{ district_id: string }> {
+  const centre = await one<{ is_active: boolean; gone: boolean; district_id: string }>(
+    `SELECT is_active, (deleted_at IS NOT NULL) AS gone, district_id FROM centres WHERE id = $1 FOR SHARE`,
     [id],
     db,
   );
   if (!centre || centre.gone) throw invalid('centre_id', 'Centre not found');
   if (!centre.is_active) throw invalid('centre_id', 'This centre is inactive. Choose an active centre.');
+  return centre;
 }
 
 /* The id of an active technology, by its code; likewise kept. */
@@ -132,12 +134,12 @@ function checkDates(start: string | null | undefined, end: string | null | undef
   if (start && end && end <= start) throw invalid('end_date', 'End date must be after the start date');
 }
 
-/* The one district of the selected forms; one without a district, or two districts, is refused. */
-function districtOf(candidates: CandidateRow[]): string | null {
-  const districts = new Map(candidates.map((c) => [c.district_id, c.district ?? 'no district']));
+/* The one district of the selected forms: two are refused, and none while the form requires one. null = no form has one. */
+function districtOf(candidates: CandidateRow[], required: boolean): string | null {
+  const counted = candidates.filter((c) => required || c.district_id);
+  const districts = new Map(counted.map((c) => [c.district_id, c.district ?? 'no district']));
   const [id] = districts.keys();
   if (districts.size === 1 && id) return id;
-  /* None of the selected students is known: not a question of districts. */
   if (!districts.size) return null;
   const names = [...districts.values()].sort();
   throw invalid('ids', `All students of a batch must be from one district. Selected: ${names.join(', ')}.`);
@@ -154,11 +156,12 @@ export async function createBatch(req: Request, user: PanelUser, body: CreateBat
       const selected = body.ids.length;
       if (selected !== size)
         throw invalid('ids', `A batch must have exactly ${people(size)} (Settings → Batch size); ${selected} selected.`);
-      await checkCentre(db, body.centre_id);
+      const centre = await checkCentre(db, body.centre_id);
       const technology = body.technology ? await technologyId(db, body.technology) : null;
       /* Locked before they are checked: no edit, verification or other batch comes in between. */
       const candidates = await lockCandidates(body.ids, db);
-      const district = districtOf(candidates);
+      const required = (await loadProgram(db)).requires('district_id');
+      const district = districtOf(candidates, required) ?? centre.district_id;
       if (await one(`SELECT 1 FROM batches WHERE lower(name) = lower($1) AND deleted_at IS NULL`, [body.name], db))
         throw nameTaken();
       const waiting = candidates.filter((c) => c.approval_stage === 'BATCH' && !c.batch_id);

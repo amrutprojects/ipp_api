@@ -8,7 +8,7 @@ import { fieldsService } from './fields.service';
 /* Masters → Form fields: what steps 1 and 2 ask, and under which names. */
 export const fieldsApi = new Api('Masters: form fields');
 const FIELD =
-  'MasterField { id, key, step, label_en, label_mr, required, is_active, order, core, custom, type, options_kind, help_en, help_mr, validation }';
+  'MasterField { id, key, step, label_en, label_mr, required, is_active, order, custom, by_type, type, types, options_kind, help_en, help_mr, validation }';
 const NOT_FOUND = 'Field not found';
 
 fieldsApi.get(
@@ -44,7 +44,8 @@ fieldsApi.patch(
   '/manage/fields/:id',
   {
     auth: 'admin',
-    summary: 'Changes a field: a core one only its labels, help texts and order; step, type and choices only of an own one',
+    summary:
+      'Changes a field, also one of the program: labels, help texts, order, step, type (one of types), checks, required, active',
     returns: FIELD,
     params: idParams,
     notFound: NOT_FOUND,

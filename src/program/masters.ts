@@ -1,4 +1,5 @@
 import { pool, rows, type Db } from '../db/pool';
+import { byType } from './built-in';
 import {
   FIELD_KIND,
   fieldOptionKind,
@@ -36,12 +37,11 @@ export interface ProgramField {
   required: boolean;
   isActive: boolean;
   displayOrder: number;
-  isCore: boolean;
   isCustom: boolean;
   type: FieldType;
   helpEn: string | null;
   helpMr: string | null;
-  /* The checks of an own field; null = none. */
+  /* The checks an ADMIN gave it; null = none. */
   validation: FieldValidation | null;
 }
 
@@ -65,7 +65,7 @@ export const shownName = (o: Pick<ProgramOption, 'kind' | 'nameEn' | 'nameMr'>) 
 
 /* The kind of a field's choices; null = it has none (or a list of its own: District, Center Name, Yes / No). */
 export const optionsKind = (f: Pick<ProgramField, 'key' | 'type' | 'isCustom'>): string | null => {
-  if (f.isCustom) return hasChoices(f.type) ? fieldOptionKind(f.key) : null;
+  if (byType(f)) return hasChoices(f.type) ? fieldOptionKind(f.key) : null;
   return FIELD_KIND[f.key] ?? null;
 };
 
@@ -91,6 +91,11 @@ export class Program {
   activeFields(step?: Step): ProgramField[] {
     return this.fields.filter((f) => f.isActive && (!step || f.step === step));
   }
+  /* Whether no form can be without a value of it now. */
+  requires(key: string): boolean {
+    const f = this.byKey.get(key);
+    return !!f?.isActive && f.required;
+  }
   /* A field's current label. */
   label(key: string): string {
     return this.byKey.get(key)?.labelEn ?? key;
@@ -114,7 +119,7 @@ export class Program {
     const o = this.option(kind, value);
     return o ? shownName(o) : null;
   }
-  /* Every kind with choices to offer: the fixed ones and those of the active own dropdown fields. */
+  /* Every kind with choices to offer: the fixed ones and those of the active fields with choices of their own. */
   kinds(): string[] {
     return [...new Set([...Object.values(FIELD_KIND), ...this.activeFields().flatMap((f) => optionsKind(f) ?? [])])];
   }
@@ -156,7 +161,7 @@ export async function loadProgram(db: Db = pool): Promise<Program> {
   const fields = () =>
     rows<ProgramField>(
       `SELECT id, key, step, type, label_en AS "labelEn", label_mr AS "labelMr", required, is_active AS "isActive",
-              display_order AS "displayOrder", is_core AS "isCore", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation
+              display_order AS "displayOrder", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation
        FROM program_fields WHERE deleted_at IS NULL ORDER BY step, display_order, created_at, key`,
       [],
       db,

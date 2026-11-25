@@ -1,5 +1,6 @@
 import { rows } from '../../db/pool';
 import { fileRule } from '../../lib/file-type';
+import { byType } from '../../program/built-in';
 import {
   loadProgram,
   optionsKind,
@@ -59,8 +60,8 @@ export async function options() {
       label_mr: f.labelMr ?? f.labelEn,
       required: f.required,
       type: f.type,
-      core: f.isCore,
       custom: f.isCustom,
+      by_type: byType(f),
       order: f.displayOrder,
       options_kind: optionsKind(f),
       help_en: f.helpEn,

@@ -131,8 +131,9 @@ describe('GET /manage/masters/:kind', () => {
   });
 
   it('refuses lists that do not exist and queries it does not know', async () => {
-    for (const kind of ['COLOURS', 'FIELD:x_none']) refused(await get(admin, list(kind)), 404, 'List not found');
-    for (const kind of ['gender', 'FIELD:gender', 'FIELD:', 'A__B'])
+    for (const kind of ['COLOURS', 'FIELD:x_none', 'FIELD:gender', 'FIELD:landmark'])
+      refused(await get(admin, list(kind)), 404, 'List not found');
+    for (const kind of ['gender', 'FIELD:', 'FIELD:1', 'A__B'])
       expect(issues(await get(admin, list(kind)))).toEqual({ 'params.kind': 'Unknown list' });
     for (const res of [
       await post(admin, list('COLOURS'), { name_en: 'Red' }),

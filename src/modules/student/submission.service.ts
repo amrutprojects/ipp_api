@@ -12,7 +12,7 @@ import { aadhaarDigits } from '../../program/rules';
 import { candidateFolder, discardFiles, discardUnusedFiles } from '../../program/uploads';
 import { audit } from '../../services/audit';
 import { storage } from '../../services/storage';
-import { aadhaarTaken, DUPLICATE_AADHAAR, formOf, lockDraft } from './application.service';
+import { aadhaarTaken, DUPLICATE_AADHAAR, formOf, lockDraft, withAccount } from './application.service';
 
 /* Until the transaction ends: one holder of `key` at a time. */
 const hold = (db: Db, key: string) => db.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [key]);
@@ -51,7 +51,7 @@ export async function submit(req: Request, account: StudentAccount) {
     done = await transaction(async (db) => {
       const p = await lockDraft(db, account.id);
       const program = await loadProgram(db);
-      const { values, errors } = await checkForm(program, { ...formOf(p, program), email: account.email }, { db });
+      const { values, errors } = await checkForm(program, withAccount(formOf(p, program), account), { db });
       const files = await rows<{ id: string; document_code: string; storage_key: string }>(
         `SELECT id, document_code, storage_key FROM application_files WHERE application_id = $1`,
         [p.id],
@@ -62,14 +62,17 @@ export async function submit(req: Request, account: StudentAccount) {
           errors.push({ field: `files.${d.code}`, message: `${d.nameEn} is required` });
       if (errors.length) throw AppError.validation(errors);
 
+      /* None when it is not asked for, or optional and left blank: one typed before it was switched off is not kept. */
       const { aadhaar_number: aadhaar, ...clean } = values;
-      const digits = aadhaarDigits(aadhaar!);
-      const index = aadhaarBlindIndex(digits);
-      await hold(db, `aadhaar:${index}`);
-      if (await aadhaarTaken(db, index, p.id)) throw AppError.conflict(DUPLICATE_AADHAAR);
+      const digits = aadhaar ? aadhaarDigits(aadhaar) : null;
+      const index = digits && aadhaarBlindIndex(digits);
+      if (index) {
+        await hold(db, `aadhaar:${index}`);
+        if (await aadhaarTaken(db, index, p.id)) throw AppError.conflict(DUPLICATE_AADHAAR);
+      }
 
       const { code } = (await one<{ code: string }>(`SELECT 'IPP-' || padded(nextval('registration_seq'), 6) AS code`, [], db))!;
-      const folder = candidateFolder(code, values.first_name!, values.last_name!);
+      const folder = candidateFolder(code, values.first_name || account.first_name, values.last_name || account.last_name);
       for (const f of files) {
         const key = storage.candidateKey(folder, `${f.document_code}${path.extname(f.storage_key)}`);
         copies.push(key);
@@ -81,9 +84,10 @@ export async function submit(req: Request, account: StudentAccount) {
         `UPDATE applications SET status = 'SUBMITTED', submitted_at = now(), declared_at = now(), student_active_at = now(),
            current_step = 3, basic_completed_at = coalesce(basic_completed_at, now()),
            main_completed_at = coalesce(main_completed_at, now()), registration_code = $2, registration_number = $3,
-           aadhaar_index = $4, aadhaar_last4 = $5, data = data || $6::jsonb
+           aadhaar_enc = CASE WHEN $4::text IS NULL THEN NULL ELSE aadhaar_enc END, aadhaar_index = $4, aadhaar_last4 = $5,
+           data = data || $6::jsonb
          WHERE id = $1`,
-        [p.id, code, number, index, digits.slice(-4), JSON.stringify(clean)],
+        [p.id, code, number, index, digits && digits.slice(-4), JSON.stringify(clean)],
       );
       await audit.inTx(db, req, {
         action: 'edp.application.submitted',

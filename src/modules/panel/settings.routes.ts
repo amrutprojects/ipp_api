@@ -1,6 +1,7 @@
 import { Api } from '../../http/api';
 import { panelOf } from '../../http/auth';
 import { ok } from '../../http/respond';
+import { loadProgram } from '../../program/masters';
 import { batchSettings, helpSettings, supportSettings, welcomeSettings } from '../../program/settings';
 import { batchSizeBody, helpBody, supportBody, welcomeBody } from './settings.schemas';
 import { saveSettings } from './settings.service';
@@ -9,26 +10,32 @@ import { saveSettings } from './settings.service';
 export const settingsApi = new Api('Panel: settings');
 const api = settingsApi;
 
+/* The size, and whether each student of a batch must have a district (Masters → Form fields). */
+async function batchRules() {
+  const [size, program] = await Promise.all([batchSettings(), loadProgram()]);
+  return { ...size, district_required: program.requires('district_id') };
+}
+
 api.get(
   '/manage/settings/batch',
   {
     auth: 'panel',
     summary: 'How many students a new batch has',
-    returns: '{ size, updated_at, updated_by } (null = never saved)',
+    returns: '{ size, updated_at, updated_by, district_required } (null = never saved)',
   },
-  async ({ res }) => ok(res, await batchSettings()),
+  async ({ res }) => ok(res, await batchRules()),
 );
 api.put(
   '/manage/settings/batch',
   {
     auth: 'admin',
     summary: 'Sets how many students a new batch has (existing batches keep theirs)',
-    returns: '{ size, updated_at, updated_by }',
+    returns: '{ size, updated_at, updated_by, district_required }',
     body: batchSizeBody,
   },
   async ({ req, res, body }) => {
     await saveSettings(req, panelOf(res), 'batch', body);
-    ok(res, await batchSettings(), 'Batch size saved');
+    ok(res, await batchRules(), 'Batch size saved');
   },
 );
 

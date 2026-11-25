@@ -2,10 +2,11 @@ import { one, pool, type Db } from '../db/pool';
 import type { FieldError } from '../http/errors';
 import { maskAadhaar } from '../lib/aadhaar';
 import { normaliseMobile } from '../lib/text';
+import { byType } from './built-in';
 import { isLinkedKind, YES_NO, type Form, type Step } from './constants';
-import { chosen, isBlank, missingText, typeIssue } from './field-types';
+import { chosen, hasChoices, isBlank, missingText, typeIssue } from './field-types';
 import { optionsKind, optionValue, type Program, type ProgramField } from './masters';
-import { FIELD_RULES } from './rules';
+import { aadhaarDigits, FIELD_RULES } from './rules';
 import { validationIssue } from './validation';
 
 /*
@@ -75,6 +76,23 @@ export async function checkForm(
     return null;
   };
 
+  /*
+   * What the field itself says of a value: its type (an own field, or one given another type), its choices, else the
+   * program's format for it. `value` = as it is kept.
+   */
+  const checked = (f: ProgramField, v: string): { value: string; wrong: string[] } => {
+    const answer = (wrong: string | null) => ({ value: v, wrong: wrong ? [wrong] : [] });
+    if (byType(f)) return answer(typeIssue(f, v) ?? choiceIssue(f, v));
+    if (hasChoices(f.type)) return answer(choiceIssue(f, v));
+    const rule = FIELD_RULES[f.key];
+    const parsed = rule?.schema.safeParse(v);
+    if (!parsed) return answer(null);
+    if (parsed.success) return { value: String(parsed.data ?? ''), wrong: [] };
+    /* The rule's own name of the field gives way to the current label. */
+    const named = (m: string) => (m.startsWith(rule!.label) ? f.labelEn + m.slice(rule!.label.length) : m);
+    return { value: v, wrong: parsed.error.issues.map((i) => named(i.message)) };
+  };
+
   for (const f of program.activeFields(opts.step)) {
     const v = value(f.key);
     if (!applies(f.key, value)) {
@@ -86,22 +104,14 @@ export async function checkForm(
       else values[f.key] = '';
       continue;
     }
-    if (f.type === 'DROPDOWN' || f.isCustom) {
-      /* An own field: its type, then its choices, then the checks an ADMIN gave it. An unchanged stored value stays accepted. */
-      const wrong = f.isCustom
-        ? (typeIssue(f, v) ?? choiceIssue(f, v) ?? (unchanged(f.key, v) ? null : await validationIssue(f, v, form)))
-        : choiceIssue(f, v);
-      if (wrong) issue(f.key, wrong);
-      else values[f.key] = v;
-      continue;
+    const { value: kept, wrong } = checked(f, v);
+    /* Then the checks an ADMIN gave it. An unchanged stored value stays accepted. */
+    if (!wrong.length && !unchanged(f.key, v)) {
+      const broken = await validationIssue(f, f.key === 'aadhaar_number' ? aadhaarDigits(kept) : kept, form);
+      if (broken) wrong.push(broken);
     }
-    const rule = FIELD_RULES[f.key];
-    const parsed = rule?.schema.safeParse(v);
-    if (parsed && !parsed.success)
-      /* The rule's own name of the field gives way to the current label. */
-      for (const i of parsed.error.issues)
-        issue(f.key, i.message.startsWith(rule!.label) ? f.labelEn + i.message.slice(rule!.label.length) : i.message);
-    else values[f.key] = parsed ? String(parsed.data ?? '') : v;
+    for (const message of wrong) issue(f.key, message);
+    if (!wrong.length) values[f.key] = kept;
   }
 
   /* Rules across fields: only for values that are right on their own. */
@@ -116,7 +126,8 @@ export async function checkForm(
   if (alternateEmail && alternateEmail.toLowerCase() === value('email').toLowerCase())
     issue('alternate_email', `${program.label('alternate_email')} must be different from ${program.label('email')}`);
   const score = ok('score');
-  if (score) {
+  const scoreField = program.field('score');
+  if (score && scoreField && !byType(scoreField)) {
     /* 0–100; a CGPA 0–its scale (the largest one while no scale is asked for; a missing one is reported on its own). */
     const grading = value('grading_type');
     const asked = program.field('cgpa_scale');
@@ -145,14 +156,16 @@ export async function referenceNames(program: Program, form: Form, db: Db = pool
     db,
   ))!;
   const choice = (key: string, kind: string) => (form[key] ? (program.optionName(kind, form[key]) ?? form[key]) : null);
+  /* Typed, unless it was given choices of its own: shown as given. */
+  const taluka = program.field('taluka');
+  const talukaKind = taluka && optionsKind(taluka);
   return {
     caste: choice('caste_id', 'CASTE'),
     course_centre: choice('region_id', 'REGION'),
     education: choice('education_id', 'EDUCATION'),
     centre: row.centre,
     district: row.district,
-    /* Typed, not a reference: shown as given. */
-    taluka: form.taluka || null,
+    taluka: talukaKind ? choice('taluka', talukaKind) : form.taluka || null,
     religion: choice('religion', 'RELIGION'),
     technology: choice('technology', 'TECHNOLOGY'),
     gender: choice('gender', 'GENDER'),

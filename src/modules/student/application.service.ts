@@ -53,6 +53,16 @@ export function formOf(p: ApplicationRow, program: Program): Form {
   return form;
 }
 
+/* A new form starts with the account's own details; left blank, they are the account's. */
+export const withAccount = (form: Form, account: StudentAccount): Form => ({
+  ...form,
+  first_name: form.first_name || account.first_name,
+  last_name: form.last_name || account.last_name,
+  mobile_number: form.mobile_number || account.mobile,
+  /* The e-mail is always the account's: it cannot be changed. */
+  email: account.email,
+});
+
 /* Whether another submitted form holds this Aadhaar number (two drafts may). */
 export const aadhaarTaken = async (db: Db, index: string, applicationId: string): Promise<boolean> =>
   !!(await one(
@@ -67,7 +77,7 @@ async function view(account: StudentAccount) {
   const program = await loadProgram();
   const form = formOf(p, program);
   /* The e-mail is always the account's: it cannot be changed. */
-  form.email = account.email;
+  if (program.field('email')?.isActive) form.email = account.email;
   const files = await storedFiles(program, p.id);
   const editable = p.status === 'DRAFT';
   const base = {
@@ -78,14 +88,10 @@ async function view(account: StudentAccount) {
     submitted_at: p.submitted_at,
   };
   if (editable) {
-    /* A new form starts with the account's own details. */
-    form.first_name ||= account.first_name;
-    form.last_name ||= account.last_name;
-    form.mobile_number ||= account.mobile;
     const asked = new Set(program.documents().map((d) => d.code));
     return {
       ...base,
-      form,
+      form: withAccount(form, account),
       draft_files: files.filter((f) => asked.has(f.doc_type)),
       submitted_files: [],
       registration: null,
@@ -133,7 +139,7 @@ export const applicationService = {
       const given: Form = Object.fromEntries(Object.entries(data).filter(([k]) => fields.includes(k)));
       /* The e-mail is never taken from the request. */
       delete given.email;
-      if (step === 1) given.email = account.email;
+      if (fields.includes('email')) given.email = account.email;
       const { aadhaar_number: aadhaar, ...values } = given;
       const digits = aadhaar === undefined ? undefined : aadhaarDigits(aadhaar);
       const replacesAadhaar = digits !== undefined && /^(\d{12})?$/.test(digits);

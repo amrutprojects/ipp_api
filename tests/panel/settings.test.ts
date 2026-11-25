@@ -24,7 +24,7 @@ const save = (key: string, body: object) => put(`/manage/settings/${key}`, admin
 
 describe('batch size', () => {
   it('is 30 until it is set to another whole number from 1 to 100', async () => {
-    expect(await read('batch')).toEqual({ size: 30, updated_at: null, updated_by: null });
+    expect(await read('batch')).toEqual({ size: 30, updated_at: null, updated_by: null, district_required: true });
     for (const [size, message] of [
       [0, 'Batch size must be at least 1'],
       [101, 'Batch size must be at most 100'],
@@ -34,12 +34,17 @@ describe('batch size', () => {
     ] as const)
       expect(detailsOf(await save('batch', { size }))).toEqual([{ field: 'body.size', message }]);
     expect(detailsOf(await save('batch', {}))).toEqual([{ field: 'body.size', message: 'Batch size is required' }]);
-    expect(await read('batch')).toEqual({ size: 30, updated_at: null, updated_by: null });
+    expect(await read('batch')).toEqual({ size: 30, updated_at: null, updated_by: null, district_required: true });
 
     const res = await save('batch', { size: 2 });
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('Batch size saved');
-    expect(res.body.data).toEqual({ size: 2, updated_at: expect.any(String), updated_by: 'Settings Admin' });
+    expect(res.body.data).toEqual({
+      size: 2,
+      updated_at: expect.any(String),
+      updated_by: 'Settings Admin',
+      district_required: true,
+    });
     expect(await read('batch')).toEqual(res.body.data);
     expect((await save('batch', { size: 100 })).body.data.size).toBe(100);
     expect((await save('batch', { size: 1 })).body.data.size).toBe(1);

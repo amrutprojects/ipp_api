@@ -314,6 +314,28 @@ describe('POST /manage/batches', () => {
     expect(await batches()).toBe(0);
   });
 
+  it.each(['is_active', 'required'])('students without a district go with any while it is not required (%s)', async (off) => {
+    const rules = async () => (await get('/manage/settings/batch', admin.token)).body.data;
+    await setBatchSize(2);
+    expect(await rules()).toMatchObject({ size: 2, district_required: true });
+    await pool.query(`UPDATE program_fields SET ${off} = false WHERE key = 'district_id'`);
+    expect(await rules()).toMatchObject({ size: 2, district_required: false });
+    const [nashik, pune] = [await waiting(), await waiting({ values: { district_id: await districtId('PUN') } })];
+    expect(detailsOf(await create(idsOf([nashik, pune])))).toEqual([
+      { field: 'body.ids', message: 'All students of a batch must be from one district. Selected: Nashik, Pune.' },
+    ]);
+    const none = await waiting();
+    await pool.query(`UPDATE applications SET data = data - 'district_id' WHERE id = $1`, [none.applicationId]);
+    const mixed = await create(idsOf([none, pune]));
+    expect([mixed.status, mixed.body.data.district.name]).toEqual([201, 'Pune']);
+    /* Only such students: the center's district. */
+    const alone = await waiting();
+    await pool.query(`UPDATE applications SET data = data - 'district_id' WHERE id = $1`, [alone.applicationId]);
+    await setBatchSize(1);
+    const of = await create(idsOf([alone]), { centre_id: await makeCentre({ district: 'SAT' }) });
+    expect([of.status, of.body.data.district.name]).toEqual([201, 'Satara']);
+  });
+
   it('has a name of its own', async () => {
     await setBatchSize(1);
     expect((await create(idsOf([await waiting()]), { name: 'Nashik Batch 1' })).status).toBe(201);

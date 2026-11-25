@@ -56,7 +56,7 @@ Officer. The officers' part (Divisional Officer, COEP, Head Office, Admin) is no
 
 ## Security notes
 
-- Checks an ADMIN writes for own fields (regular expressions, JavaScript functions) run in a sandbox (`src/program/sandbox.ts`): no access to
+- Checks an ADMIN writes for a field (regular expressions, JavaScript functions) run in a sandbox (`src/program/sandbox.ts`): no access to
   this server, 4 MB of memory, 50 ms.
 - `npm audit` names zod 3 (memory while validating oversized collections). Requests are limited to 100 kB of JSON before they are validated,
   so it cannot be used here; zod 4 changes every message definition and is a step of its own.

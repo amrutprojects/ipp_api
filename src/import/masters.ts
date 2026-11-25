@@ -191,7 +191,7 @@ export async function importMasters(src: Source, db: Db, count: Count, warn: (m:
   }
   for (const f of await src.rows<Row>(`SELECT * FROM program_fields ORDER BY "isDelete", step, "displayOrder"`)) {
     const { rowCount } = await db.query(
-      `UPDATE program_fields SET label_en = $2, label_mr = $3, required = is_core OR $4, display_order = $5, is_active = is_core OR $6,
+      `UPDATE program_fields SET label_en = $2, label_mr = $3, required = $4, display_order = $5, is_active = $6,
          help_en = $7, help_mr = $8 WHERE key = $1`,
       [
         f.key,

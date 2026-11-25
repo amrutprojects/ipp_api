@@ -77,8 +77,8 @@ describe('GET /options', () => {
       label_mr: 'पहिले नाव',
       required: true,
       type: 'TEXT',
-      core: true,
       custom: false,
+      by_type: false,
       order: 10,
       options_kind: null,
       help_en: null,
@@ -89,7 +89,7 @@ describe('GET /options', () => {
     expect(field('educational_status')).toMatchObject({
       type: 'DROPDOWN',
       required: true,
-      core: false,
+      by_type: false,
       options_kind: 'EDUCATIONAL_STATUS',
     });
     expect(field('landmark').required).toBe(false);
@@ -200,7 +200,7 @@ describe('GET /options', () => {
       const o = await options();
       expect(o.fields.find((f: { key: string }) => f.key === 'x_blood')).toMatchObject({
         custom: true,
-        core: false,
+        by_type: true,
         label_mr: 'Blood Group',
         options_kind: 'FIELD:x_blood',
       });

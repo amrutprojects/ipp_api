@@ -4,7 +4,7 @@ import { expressionProblem, functionProblem } from '../../program/sandbox';
 import { PAIRS, RULES, rulesFor, type FieldValidation } from '../../program/validation';
 import type { ValidationBody } from './fields.schemas';
 
-/* The checks an ADMIN gives to an own field: that they fit its type and can be run. */
+/* The checks an ADMIN gives to a field: that they fit its type and can be run. */
 
 /* Checks them (422, every problem), and gives them as they are stored; null = none. */
 export async function checkedValidation(type: FieldType, body: ValidationBody): Promise<FieldValidation | null> {

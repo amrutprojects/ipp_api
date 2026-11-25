@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { one, pool } from '../../src/db/pool';
+import { FIELD_TYPES } from '../../src/program/constants';
 import { checkForm } from '../../src/program/form';
 import { loadProgram } from '../../src/program/masters';
 import { closeDatabase, resetDatabase } from '../helpers/db';
@@ -15,9 +16,10 @@ interface Field {
   required: boolean;
   is_active: boolean;
   order: number;
-  core: boolean;
   custom: boolean;
+  by_type: boolean;
   type: string;
+  types: string[];
   options_kind: string | null;
   help_en: string | null;
   help_mr: string | null;
@@ -31,8 +33,6 @@ beforeEach(async () => {
 });
 afterAll(closeDatabase);
 
-const CORE_ONLY = 'This field is part of every form: only its labels, help text and order can be changed.';
-const BUILT_IN_ONLY = 'Only the labels, help text, order, required and active of this field can be changed.';
 const list = async () => (await get(admin, '/fields')).body.data as Field[];
 const field = async (key: string) => (await list()).find((f) => f.key === key)!;
 const change = async (key: string, body: object) => patch(admin, `/fields/${(await field(key)).id}`, body);
@@ -100,9 +100,10 @@ describe('GET /manage/fields', () => {
       required: true,
       is_active: true,
       order: 80,
-      core: false,
       custom: false,
+      by_type: false,
       type: 'TEXT',
+      types: [...FIELD_TYPES],
       options_kind: null,
       help_en: null,
       help_mr: null,
@@ -117,7 +118,6 @@ describe('GET /manage/fields', () => {
       centre_id: null,
       disability_status: null,
     });
-    expect(all.filter((f) => f.core)).toHaveLength(16);
   });
 });
 
@@ -141,9 +141,10 @@ describe('POST /manage/fields', () => {
       required: true,
       is_active: true,
       order: 240,
-      core: false,
       custom: true,
+      by_type: true,
       type: 'TEXTAREA',
+      types: [...FIELD_TYPES],
       options_kind: null,
       help_en: null,
       help_mr: null,
@@ -292,29 +293,36 @@ describe('PATCH /manage/fields/:id', () => {
     expect((await change('gender', { is_active: true })).body.data.is_active).toBe(true);
   });
 
-  it('of a core field only the labels, help texts and order change', async () => {
-    const father = await field('father_name');
-    for (const body of [
-      { required: false },
-      { is_active: false },
-      { step: 2 },
-      { type: 'TEXTAREA' },
-      { options: [{ name_en: 'A' }] },
-      { label_en: 'Daddy', required: false },
-    ])
-      refused(await change('father_name', body), 409, CORE_ONLY);
-    expect(await field('father_name')).toEqual(father);
-    /* What is sent may repeat what is there. */
-    expect(
-      (await change('father_name', { required: true, is_active: true, step: 1, type: 'TEXT', order: 35, help_mr: 'आधारप्रमाणे' }))
-        .body.data,
-    ).toEqual({ ...father, order: 35, help_mr: 'आधारप्रमाणे' });
+  it('every field of the program is switched off and on, made optional and moved', async () => {
+    for (const f of await list()) {
+      const other = f.step === 1 ? 2 : 1;
+      expect((await change(f.key, { is_active: false, required: !f.required, step: other })).body.data).toEqual({
+        ...f,
+        is_active: false,
+        required: !f.required,
+        step: other,
+      });
+    }
+    expect((await loadProgram()).activeFields()).toEqual([]);
+    expect((await change('first_name', { is_active: true })).body.data.is_active).toBe(true);
   });
 
-  it('of a built-in field the step, type and choices stay', async () => {
-    for (const body of [{ step: 2 }, { type: 'TEXT' }, { options: [{ name_en: 'A' }] }, { options: [] }])
-      refused(await change('gender', body), 409, BUILT_IN_ONLY);
-    expect((await change('gender', { step: 1, type: 'DROPDOWN', required: false })).status).toBe(200);
+  it('of a field of the program everything changes but its key', async () => {
+    const father = await field('father_name');
+    const changes = {
+      label_en: 'Guardian',
+      label_mr: 'पालक',
+      help_en: 'Any one',
+      help_mr: 'आधारप्रमाणे',
+      order: 35,
+      required: false,
+      step: 2,
+      type: 'TEXTAREA',
+      validation: { rules: [{ type: 'min_length', value: 3 }], custom: [] },
+    };
+    expect((await change('father_name', changes)).body.data).toEqual({ ...father, ...changes, by_type: true });
+    /* What is sent may repeat what is there. */
+    expect((await change('father_name', changes)).status).toBe(200);
   });
 
   it('of an own field everything changes but its key', async () => {
@@ -392,12 +400,12 @@ describe('DELETE /manage/fields/:id', () => {
   });
 
   it('keeps the fields of the program', async () => {
-    refused(await del(admin, `/fields/${(await field('first_name')).id}`), 409, CORE_ONLY);
-    refused(
-      await del(admin, `/fields/${(await field('gender')).id}`),
-      409,
-      'This field is part of the form and cannot be deleted. Switch it off instead.',
-    );
+    for (const key of ['first_name', 'gender'])
+      refused(
+        await del(admin, `/fields/${(await field(key)).id}`),
+        409,
+        'This field comes with the program and cannot be deleted. Switch it off instead.',
+      );
     expect(await list()).toHaveLength(36);
   });
 });

@@ -97,7 +97,8 @@ async function textsOf(program: Program, form: Form, db: Db) {
 /*
  * Changes a submitted form. Only the changed values are checked, with the ones that depend on them, as the student's form is,
  * by the masters as they are now; a value that stays as it is may be one no longer offered. The account follows a new name
- * and mobile number, so lists, search and calls match the form. Nothing changed = nothing recorded.
+ * and mobile number, so lists, search and calls match the form (one that is cleared leaves the account's). Nothing changed =
+ * nothing recorded.
  */
 export async function editForm(req: Request, user: PanelUser, accountId: string, data: Form): Promise<void> {
   try {
@@ -134,12 +135,12 @@ export async function editForm(req: Request, user: PanelUser, accountId: string,
         ],
       );
       if (values.first_name !== undefined || values.last_name !== undefined)
-        await db.query(`UPDATE student_accounts SET first_name = $2, last_name = $3 WHERE id = $1`, [
-          account.id,
-          after.first_name,
-          after.last_name,
-        ]);
-      if (values.mobile_number !== undefined)
+        await db.query(
+          `UPDATE student_accounts SET first_name = coalesce(nullif($2, ''), first_name),
+             last_name = coalesce(nullif($3, ''), last_name) WHERE id = $1`,
+          [account.id, after.first_name ?? '', after.last_name ?? ''],
+        );
+      if (values.mobile_number)
         await db.query(`UPDATE student_accounts SET mobile = $2 WHERE id = $1`, [
           account.id,
           normaliseMobile(values.mobile_number),
