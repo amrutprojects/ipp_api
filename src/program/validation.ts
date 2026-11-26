@@ -1,13 +1,16 @@
 import { logger } from '../lib/logger';
 import { ageOn, today } from '../lib/dates';
-import { isDate } from '../lib/text';
+import { isDate, MOBILE_RE, normaliseMobile } from '../lib/text';
 import type { FieldType, Form } from './constants';
 import { chosen, CUSTOM_VALUE_MAX, YEARS } from './field-types';
+import { aadhaarDigits, isAadhaar } from './rules';
 import { answer, matches } from './sandbox';
 
 /*
  * The checks an ADMIN gives to a field: ready-made rules, any number of them, and own checks (a regular expression or a
- * JavaScript function), each with its own message. They are applied to a value that is given and of the field's type.
+ * JavaScript function), each with its own message. They are applied to a value that is given and of the field's type. These
+ * are all the checks of a field beyond its type: the program's own fields start with the ones they always had (seeds,
+ * migration 0006), and every one of them can be changed or taken away.
  */
 export const RULE_TYPES = [
   'letters',
@@ -18,11 +21,15 @@ export const RULE_TYPES = [
   'pin_code',
   'pan',
   'ifsc',
+  'email',
+  'indian_mobile',
+  'aadhaar',
   'min_length',
   'max_length',
   'whole_number',
   'min_digits',
   'max_digits',
+  'max_decimals',
   'min_value',
   'max_value',
   'not_future',
@@ -35,6 +42,8 @@ export const RULE_TYPES = [
   'max_time',
   'min_choices',
   'max_choices',
+  'different_from',
+  'grading_scale',
 ] as const;
 export type RuleType = (typeof RULE_TYPES)[number];
 export const CHECK_KINDS = ['REGEX', 'JS'] as const;
@@ -64,6 +73,8 @@ interface RuleDefinition {
   limit?: (value: Limit | undefined, type: FieldType) => string | null;
   right(value: string, limit: Limit): boolean;
   message(label: string, limit: Limit): string;
+  /* Checked against the other answers of the form (form.ts), not on the value alone. */
+  across?: true;
 }
 
 const numberFrom =
@@ -77,6 +88,10 @@ const always = () => true;
 const length = numberFrom(1, (type) => CUSTOM_VALUE_MAX[type], always);
 const digits = numberFrom(1, () => 16, always);
 const years = numberFrom(0, () => 120, always);
+const decimals = numberFrom(0, () => 4, always);
+/* Another field, by its key. */
+const field = (value: Limit | undefined) =>
+  typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value) ? null : 'Choose a field';
 const choices = numberFrom(1, () => 100, always);
 const year = numberFrom(YEARS.MIN, () => YEARS.MAX, always);
 const anyNumber = numberFrom(
@@ -97,6 +112,7 @@ const format = (on: readonly FieldType[], right: (v: string) => boolean, message
   right,
   message: (label) => `${label} ${message}`,
 });
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 /* The digits of a number, without its sign and decimal point. */
 const digitsIn = (v: string) => v.replace(/[^0-9]/g, '').length;
 /* 2026-11-25 → 25/11/2026 */
@@ -113,6 +129,11 @@ export const RULES: Record<RuleType, RuleDefinition> = {
   pin_code: format(['TEXT'], (v) => /^[1-9]\d{5}$/.test(v), 'must be exactly 6 digits'),
   pan: format(['TEXT'], (v) => /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(v), 'must be a valid PAN, e.g. ABCDE1234F'),
   ifsc: format(['TEXT'], (v) => /^[A-Z]{4}0[A-Z0-9]{6}$/i.test(v), 'must be a valid IFSC code, e.g. SBIN0001234'),
+  email: format(['TEXT'], (v) => v.length <= 254 && EMAIL_RE.test(v), 'must be a valid email address'),
+  /* +91, a 0 and spaces in front are allowed. */
+  indian_mobile: format(['TEXT'], (v) => MOBILE_RE.test(normaliseMobile(v)), 'must be a 10-digit Indian number starting 6–9'),
+  /* Spaces and hyphens between the digits are allowed. */
+  aadhaar: format(['TEXT'], (v) => isAadhaar(aadhaarDigits(v)), 'must be 12 digits with a valid checksum'),
   min_length: {
     on: TEXTS,
     limit: length,
@@ -137,6 +158,12 @@ export const RULES: Record<RuleType, RuleDefinition> = {
     limit: digits,
     right: (v, n) => digitsIn(v) <= Number(n),
     message: (l, n) => `${l} must have at most ${n} digits`,
+  },
+  max_decimals: {
+    on: ['NUMBER'],
+    limit: decimals,
+    right: (v, n) => (v.split('.')[1]?.length ?? 0) <= Number(n),
+    message: (l, n) => (Number(n) === 0 ? `${l} must be a whole number` : `${l} must have at most ${n} decimal places`),
   },
   min_value: {
     on: AMOUNTS,
@@ -200,6 +227,21 @@ export const RULES: Record<RuleType, RuleDefinition> = {
     right: (v, n) => (chosen(v)?.length ?? 0) <= Number(n),
     message: (l, n) => `${l}: choose at most ${n}`,
   },
+  /* Not the same as the answer of another field (its key); the message names that field by its label (form.ts). */
+  different_from: {
+    on: ['TEXT', 'TEXTAREA', 'EMAIL', 'MOBILE', 'NUMBER', 'URL'],
+    limit: field,
+    right: () => true,
+    message: (l, other) => `${l} must be different from ${other}`,
+    across: true,
+  },
+  /* A score within its grading: a percentage 0–100, a CGPA 0–its scale (form.ts). */
+  grading_scale: {
+    on: ['NUMBER'],
+    right: () => true,
+    message: (l) => `${l} must be within its grading`,
+    across: true,
+  },
 };
 /* A minimum and its maximum. */
 export const PAIRS: [min: RuleType, max: RuleType][] = [
@@ -211,6 +253,10 @@ export const PAIRS: [min: RuleType, max: RuleType][] = [
   ['min_time', 'max_time'],
   ['min_choices', 'max_choices'],
 ];
+
+/* A rule of a field (null = it has none of this type). */
+export const ruleOf = (v: FieldValidation | null | undefined, type: RuleType): Rule | null =>
+  v?.rules.find((r) => r.type === type) ?? null;
 
 /* The rules of a field that fit its type, in the order they are checked. */
 export const rulesFor = (type: FieldType, rules: Rule[]): Rule[] =>
@@ -245,7 +291,7 @@ export async function validationIssue(
   if (!validation) return null;
   for (const r of rulesFor(field.type, validation.rules)) {
     const rule = RULES[r.type];
-    if (!rule.right(value, r.value ?? 0)) return rule.message(label, r.value ?? 0);
+    if (!rule.across && !rule.right(value, r.value ?? 0)) return rule.message(label, r.value ?? 0);
   }
   for (const c of validation.custom) {
     const issue = await customIssue(c, label, field.key, value, form);

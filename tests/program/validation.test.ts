@@ -54,11 +54,22 @@ describe('ready-made rules', () => {
     ['TEXT', { type: 'pin_code' }, ['422001'], ['022001', '4220011'], 'Field must be exactly 6 digits'],
     ['TEXT', { type: 'pan' }, ['ABCDE1234F', 'abcde1234f'], ['ABCD1234F'], 'Field must be a valid PAN, e.g. ABCDE1234F'],
     ['TEXT', { type: 'ifsc' }, ['SBIN0001234'], ['SBIN1001234'], 'Field must be a valid IFSC code, e.g. SBIN0001234'],
+    ['TEXT', { type: 'email' }, ['asha@example.in'], ['asha@', 'a b@c.in', 'asha@example'], 'Field must be a valid email address'],
+    [
+      'TEXT',
+      { type: 'indian_mobile' },
+      ['9876501234', '+91 98765 01234', '09876501234'],
+      ['5876501234', '98765'],
+      'Field must be a 10-digit Indian number starting 6–9',
+    ],
+    ['TEXT', { type: 'aadhaar' }, ['2345 6789 0124'], ['234567890123', '1234 5678 9012', '2345'], 'Field must be 12 digits with a valid checksum'],
     ['TEXT', { type: 'min_length', value: 3 }, ['abc', 'आशा'], ['ab'], 'Field must be at least 3 characters'],
     ['TEXTAREA', { type: 'max_length', value: 3 }, ['abc'], ['abcd'], 'Field must be at most 3 characters'],
     ['NUMBER', { type: 'whole_number' }, ['12', '-3'], ['1.5'], 'Field must be a whole number'],
     ['NUMBER', { type: 'min_digits', value: 10 }, ['9876543210'], ['987654321'], 'Field must have at least 10 digits'],
     ['NUMBER', { type: 'max_digits', value: 3 }, ['-123', '12.3'], ['1234', '12.34'], 'Field must have at most 3 digits'],
+    ['NUMBER', { type: 'max_decimals', value: 2 }, ['72', '72.5', '72.55'], ['72.555'], 'Field must have at most 2 decimal places'],
+    ['NUMBER', { type: 'max_decimals', value: 0 }, ['72'], ['72.5'], 'Field must be a whole number'],
     ['NUMBER', { type: 'min_value', value: 10 }, ['10', '10.5'], ['9.9', '-11'], 'Field must be at least 10'],
     ['NUMBER', { type: 'max_value', value: -1 }, ['-1', '-2'], ['0'], 'Field must be at most -1'],
     ['YEAR', { type: 'min_value', value: 2015 }, ['2015'], ['2014'], 'Field must be at least 2015'],
@@ -358,6 +369,20 @@ describe('Masters → Form fields', () => {
       rules: 'Each check may be chosen only once',
     });
     expect(details(await rules('TEXT', { type: 'nope' }))).toEqual({ 'rules.0.type': 'Unknown check' });
+    /* "Different from" names another field of the form; "within its grading" is of a number. */
+    expect(
+      details(
+        await rules('TEXT', { type: 'different_from', value: 'x_nowhere' }),
+      ),
+    ).toEqual({ 'rules.0.value': 'Choose another field of the form' });
+    expect(details(await rules('TEXT', { type: 'different_from' }))).toEqual({ 'rules.0.value': 'Choose a field' });
+    expect(details(await rules('TEXT', { type: 'grading_scale' }))).toEqual({
+      'rules.0.type': 'This check does not fit the type of the field',
+    });
+    expect(details(await rules('NUMBER', { type: 'max_decimals', value: 5 }))).toEqual({
+      'rules.0.value': 'Enter a number from 0 to 4',
+    });
+    expect((await rules('TEXT', { type: 'different_from', value: 'mobile_number' })).status).toBe(201);
 
     const custom = (...c: unknown[]) => create({ validation: { custom: c } });
     const bad = details(

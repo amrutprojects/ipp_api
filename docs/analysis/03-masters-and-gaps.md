@@ -5,8 +5,8 @@ Status: read-only analysis, 25 Nov 2026. Nothing was changed in the frontend, th
 | Source | Path |
 |---|---|
 | Frontend (5176) | `D:\Sarthi\EDP-Candidates-Registration`, commit `4a5d910` (`src/pages/manage/masters/*`, `src/pages/manage/Centre*.tsx`, `ManageLayout.tsx`, `CreateBatchDialog.tsx`, `Batch*Page.tsx`, `src/types.ts`, `src/api.ts`, `src/form.ts`, `src/validation.ts`, `src/components/ui.tsx`; tests `masters.test.tsx`, `centres.test.tsx`, `validation.extra.test.ts`, `form-fields.test.tsx`, `batches.test.tsx`) |
-| Reference API (5001) | `D:\Sarthi\amrut-kalash-api`, commit `d9f3638` (`src/modules/students/edp/program*.ts`, `edp.routes.ts`, `edp-batch.service.ts`; `src/masters/centre`; `src/cms/masters/*`; migration `1799300000000-ProgramMasters.ts`; seeds; `tests/e2e/edp-portal.e2e.test.ts` from line 2575) |
-| Admin panel (5174) | `D:\Sarthi\amrut-kalash-admin`, commit `bf827d7` (`src/constants/navigation.ts`, `src/features/cms/**`, `src/modules/masters`, `src/modules/users`) |
+| Reference API (5001) | `D:\Sarthi\sarthi-api`, commit `d9f3638` (`src/modules/students/edp/program*.ts`, `edp.routes.ts`, `edp-batch.service.ts`; `src/masters/centre`; `src/cms/masters/*`; migration `1799300000000-ProgramMasters.ts`; seeds; `tests/e2e/edp-portal.e2e.test.ts` from line 2575) |
+| Admin panel (5174) | `D:\Sarthi\sarthi-admin`, commit `bf827d7` (`src/constants/navigation.ts`, `src/features/cms/**`, `src/modules/masters`, `src/modules/users`) |
 
 The seed values in section 10 were extracted from the source files by script and compared with the running local API
 (`GET /api/v1/edp/options`): identical, except `HSC_DIPLOMA` (question Q4).

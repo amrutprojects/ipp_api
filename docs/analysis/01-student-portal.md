@@ -5,7 +5,7 @@ Specification of what the student side of the portal needs from a backend.
 | | |
 |---|---|
 | Frontend read | `D:\Sarthi\EDP-Candidates-Registration`, commit `4a5d910` (React 18.3, react-router 6.28, Vite 5, TypeScript). `src/App.tsx, api.ts, session.tsx, i18n.tsx, types.ts, validation.ts, form.ts, signup.ts, welcome.ts`, all of `src/components`, `src/pages` except `src/pages/manage`, and the matching `tests/` |
-| Server read (reference) | `D:\Sarthi\amrut-kalash-api\src\modules\students\edp`, commit `d9f3638` **plus its uncommitted changes** (`EDP_STATIC_OTP`), with `registration.validation.ts`, `aadhaar.ts`, `file-type.ts`, `registration-upload.middleware.ts`, `registration-admin.service.ts` (`prepareFiles`), `document-storage.ts`, `app.ts`, `api-response.ts`, the error handler, the migrations and `tests/e2e/edp-portal.e2e.test.ts` |
+| Server read (reference) | `D:\Sarthi\sarthi-api\src\modules\students\edp`, commit `d9f3638` **plus its uncommitted changes** (`EDP_STATIC_OTP`), with `registration.validation.ts`, `aadhaar.ts`, `file-type.ts`, `registration-upload.middleware.ts`, `registration-admin.service.ts` (`prepareFiles`), `document-storage.ts`, `app.ts`, `api-response.ts`, the error handler, the migrations and `tests/e2e/edp-portal.e2e.test.ts` |
 | Not covered here | `/manage/*` pages (tracking panel) and the approval chain; only the parts of shared code they use |
 
 Conventions: paths are written below the base (`/auth/login` = `<base>/auth/login`, see 2.1). "Page" = the React page; "API" = the current server. `F-n` refers to section (f). Messages are quoted exactly. All portal text exists in English and Marathi in the frontend unless noted; only English is quoted.

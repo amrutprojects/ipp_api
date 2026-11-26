@@ -2,6 +2,7 @@ import { env } from '../../config/env';
 import { hashPassword } from '../../lib/passwords';
 import { one, transaction, type Db } from '../pool';
 import { DISTRICTS, DOCUMENTS, FIELDS, OPTIONS, STATE } from './data';
+import { DEFAULT_CHECKS } from '../../program/rules';
 
 /*
  * Fills the masters of an empty database; safe to run again: a row is added only when there is none with its code or key
@@ -67,9 +68,9 @@ async function fields(db: Db): Promise<number> {
     for (const [i, f] of FIELDS[step].entries())
       n += await add(
         db,
-        `INSERT INTO program_fields (key, step, type, label_en, label_mr, required, display_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
-        [f.key, step, f.type, f.labelEn, f.labelMr, f.required, place(i)],
+        `INSERT INTO program_fields (key, step, type, label_en, label_mr, required, display_order, validation)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) ON CONFLICT DO NOTHING`,
+        [f.key, step, f.type, f.labelEn, f.labelMr, f.required, place(i), DEFAULT_CHECKS[f.key] ? JSON.stringify(DEFAULT_CHECKS[f.key]) : null],
       );
   return n;
 }

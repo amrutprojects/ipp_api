@@ -47,7 +47,7 @@ const validation = z
           .object({
             type: z.enum(RULE_TYPES, { errorMap: () => ({ message: 'Unknown check' }) }),
             value: z
-              .union([z.number().finite(), z.string().max(10)], { errorMap: () => ({ message: 'Enter a number' }) })
+              .union([z.number().finite(), z.string().max(64)], { errorMap: () => ({ message: 'Enter a number' }) })
               .optional(),
           })
           .strict(),

@@ -6,8 +6,18 @@ import type { ValidationBody } from './fields.schemas';
 
 /* The checks an ADMIN gives to a field: that they fit its type and can be run. */
 
+/* The other fields a check can name ("different from"): their keys, and the field's own (null = a new one). */
+export interface FieldsAround {
+  keys: readonly string[];
+  self: string | null;
+}
+
 /* Checks them (422, every problem), and gives them as they are stored; null = none. */
-export async function checkedValidation(type: FieldType, body: ValidationBody): Promise<FieldValidation | null> {
+export async function checkedValidation(
+  type: FieldType,
+  body: ValidationBody,
+  around?: FieldsAround,
+): Promise<FieldValidation | null> {
   if (!body) return null;
   const errors: FieldError[] = [];
   const issue = (path: string, message: string) => errors.push({ field: `body.validation.${path}`, message });
@@ -16,6 +26,8 @@ export async function checkedValidation(type: FieldType, body: ValidationBody): 
     const wrong = rule.limit ? rule.limit(r.value, type) : r.value === undefined ? null : 'This check has no limit';
     if (!rule.on.includes(type)) issue(`rules.${i}.type`, 'This check does not fit the type of the field');
     else if (wrong) issue(`rules.${i}.value`, wrong);
+    else if (r.type === 'different_from' && around && (r.value === around.self || !around.keys.includes(String(r.value))))
+      issue(`rules.${i}.value`, 'Choose another field of the form');
   });
   for (const [min, max] of PAIRS) {
     const at = body.rules.findIndex((r) => r.type === max);

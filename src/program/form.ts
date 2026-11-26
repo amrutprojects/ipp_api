@@ -4,14 +4,15 @@ import { maskAadhaar } from '../lib/aadhaar';
 import { normaliseMobile } from '../lib/text';
 import { byType } from './built-in';
 import { CUSTOM_KEY_PREFIX, isLinkedKind, YES_NO, type Form, type Step } from './constants';
-import { chosen, hasChoices, isBlank, missingText, typeIssue } from './field-types';
+import { chosen, isBlank, missingText, typeIssue } from './field-types';
 import { optionsKind, optionValue, type Program, type ProgramField } from './masters';
-import { aadhaarDigits, FIELD_RULES } from './rules';
-import { validationIssue } from './validation';
+import { aadhaarDigits, MOBILE_FIELDS } from './rules';
+import { ruleOf, validationIssue } from './validation';
 
 /*
  * The form checked and shown by the program's masters: which fields there are, whether each is required, what its choices
- * are and what it is called now. The formats and ranges of the program's own fields' values: rules.ts.
+ * are, what it is called now and what it is checked by (Masters → Form fields; what the program's own fields start with:
+ * rules.ts).
  */
 
 /* A field shown only in some cases: the disability details of a person with a disability, the scale of a CGPA. */
@@ -90,22 +91,16 @@ export async function checkForm(
     return null;
   };
 
-  /*
-   * What the field itself says of a value: its type (an own field, or one given another type), its choices, else the
-   * program's format for it. `value` = as it is kept.
-   */
+  /* What the field's type and its choices say of a value; its checks come after. */
   const checked = (f: ProgramField, v: string): { value: string; wrong: string[] } => {
-    const answer = (wrong: string | null) => ({ value: v, wrong: wrong ? [wrong] : [] });
-    if (byType(f)) return answer(typeIssue(f, v) ?? choiceIssue(f, v));
-    if (hasChoices(f.type)) return answer(choiceIssue(f, v));
-    const rule = FIELD_RULES[f.key];
-    const parsed = rule?.schema.safeParse(v);
-    if (!parsed) return answer(null);
-    if (parsed.success) return { value: String(parsed.data ?? ''), wrong: [] };
-    /* The rule's own name of the field gives way to the current label. */
-    const named = (m: string) => (m.startsWith(rule!.label) ? f.labelEn + m.slice(rule!.label.length) : m);
-    return { value: v, wrong: parsed.error.issues.map((i) => named(i.message)) };
+    const wrong = typeIssue(f, v) ?? choiceIssue(f, v);
+    return { value: v, wrong: wrong ? [wrong] : [] };
   };
+
+  /* What a field's checks are made on: of the Aadhaar number its digits, of a mobile number the number itself. */
+  const ownChecked = (f: ProgramField, v: string) =>
+    byType(f) ? v : f.key === 'aadhaar_number' ? aadhaarDigits(v) : MOBILE_FIELDS.includes(f.key) ? normaliseMobile(v) : v;
+  const isMobile = (key: string) => MOBILE_FIELDS.includes(key) || program.field(key)?.type === 'MOBILE';
 
   for (const f of program.activeFields(opts.step)) {
     const v = value(f.key);
@@ -119,43 +114,43 @@ export async function checkForm(
       continue;
     }
     const { value: kept, wrong } = checked(f, v);
-    /* Then the checks an ADMIN gave it. An unchanged stored value stays accepted. */
+    /* Then its checks (Masters → Form fields). An unchanged stored value stays accepted. */
     if (!wrong.length && !unchanged(f.key, v)) {
-      const broken = await validationIssue(f, f.key === 'aadhaar_number' ? aadhaarDigits(kept) : kept, form);
+      const broken = await validationIssue(f, ownChecked(f, kept), form);
       if (broken) wrong.push(broken);
     }
     for (const message of wrong) issue(f.key, message);
     if (!wrong.length) values[f.key] = kept;
   }
 
-  /* Rules across fields: only for values that are right on their own. */
+  /*
+   * The checks across fields (Masters → Form fields: "different from", "within its grading"): only of values that are right
+   * on their own, and only when the field still has them.
+   */
   const ok = (key: string) => values[key] || '';
-  const alternate = ok('alternate_mobile_number');
-  if (alternate && normaliseMobile(alternate) === normaliseMobile(value('mobile_number')))
-    issue(
-      'alternate_mobile_number',
-      `${program.label('alternate_mobile_number')} must be different from ${program.label('mobile_number')}`,
-    );
-  const alternateEmail = ok('alternate_email');
-  if (alternateEmail && alternateEmail.toLowerCase() === value('email').toLowerCase())
-    issue('alternate_email', `${program.label('alternate_email')} must be different from ${program.label('email')}`);
-  const score = ok('score');
-  const scoreField = program.field('score');
-  if (score && scoreField && !byType(scoreField)) {
-    /* 0–100; a CGPA 0–its scale (the largest one while no scale is asked for; a missing one is reported on its own). */
-    const grading = value('grading_type');
-    const asked = program.field('cgpa_scale');
-    const given = Number(value('cgpa_scale'));
-    const largest = Math.max(0, ...program.options('CGPA_SCALE').map((o) => Number(o.code)));
-    let limit = 100;
-    if (grading === 'CGPA' && given) limit = given;
-    else if (grading === 'CGPA' && !(asked?.isActive && asked.required)) limit = largest || 100;
-    if (Number(score) > limit) {
-      const label = program.label('score');
-      issue(
-        'score',
-        `${grading ? (program.optionName('GRADING_TYPE', grading) ?? label) : label} must be between 0 and ${limit}`,
-      );
+  for (const f of program.activeFields(opts.step)) {
+    const mine = ok(f.key);
+    if (!mine) continue;
+    const other = ruleOf(f.validation, 'different_from')?.value;
+    if (typeof other === 'string' && program.field(other)?.isActive) {
+      const same = (a: string, b: string) =>
+        isMobile(f.key) || isMobile(other) ? normaliseMobile(a) === normaliseMobile(b) : a.toLowerCase() === b.toLowerCase();
+      if (value(other) && same(mine, value(other))) issue(f.key, `${f.labelEn} must be different from ${program.label(other)}`);
+    }
+    if (ruleOf(f.validation, 'grading_scale') && f.type === 'NUMBER') {
+      /* 0–100; a CGPA 0–its scale (the largest one while no scale is asked for; a missing one is reported on its own). */
+      const grading = value('grading_type');
+      const asked = program.field('cgpa_scale');
+      const given = Number(value('cgpa_scale'));
+      const largest = Math.max(0, ...program.options('CGPA_SCALE').map((o) => Number(o.code)));
+      let limit = 100;
+      if (grading === 'CGPA' && given) limit = given;
+      else if (grading === 'CGPA' && !(asked?.isActive && asked.required)) limit = largest || 100;
+      if (Number(mine) > limit)
+        issue(
+          f.key,
+          `${grading ? (program.optionName('GRADING_TYPE', grading) ?? f.labelEn) : f.labelEn} must be between 0 and ${limit}`,
+        );
     }
   }
   return { values, errors };

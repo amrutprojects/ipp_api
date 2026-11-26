@@ -4,6 +4,7 @@ import { one, pool } from '../../src/db/pool';
 import { closeDatabase, resetDatabase } from '../helpers/db';
 import { makePanelUser, PASSWORD, type TestPanelUser } from '../helpers/factory';
 import { audits, detailsOf, fieldsOf, get, patch, post, UNKNOWN_ID } from './helpers';
+import { request } from '../helpers/factory';
 
 let admin: TestPanelUser;
 beforeEach(async () => {
@@ -120,6 +121,7 @@ describe('panel users', () => {
       is_active: true,
       last_login_at: null,
       created_at: expect.any(String),
+      updated_at: expect.any(String),
     });
     const signedIn = await login('priya.viewer@example.test', 'Viewer-pass-1');
     expect(signedIn.body.data.admin.role).toBe('VIEWER');
@@ -199,6 +201,7 @@ describe('panel users', () => {
       is_active: false,
       last_login_at: null,
       created_at: expect.any(String),
+      updated_at: expect.any(String),
     });
     expect((await get('/manage/me', viewer.token)).status).toBe(401);
     expect((await login(viewer.email)).status).toBe(401);
@@ -255,5 +258,62 @@ describe('panel users', () => {
     const both = await Promise.all([off(other.id, admin.token), off(admin.id, other.token)]);
     expect(both.map((r) => r.status).sort()).toEqual([200, 401]);
     expect(await active()).toBe(2);
+  });
+});
+
+describe('editing and deleting panel users', () => {
+  const del = (id: string, token = admin.token) => request('delete', `/manage/users/${id}`, token);
+  const edit = (id: string, body: object, token = admin.token) => patch(`/manage/users/${id}`, token, body);
+
+  it('changes the name, email and role; the role counts at once', async () => {
+    const viewer = await makePanelUser('VIEWER', { name: 'Priya', email: 'priya@example.test' });
+    const res = await edit(viewer.id, { name: ' Priya Kale ', email: 'Priya.Kale@Example.test', role: 'ADMIN' });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBe('User saved');
+    expect(res.body.data).toMatchObject({ id: viewer.id, name: 'Priya Kale', email: 'priya.kale@example.test', role: 'ADMIN' });
+    expect((await get('/manage/me', viewer.token)).body.data).toMatchObject({ role: 'ADMIN', email: 'priya.kale@example.test' });
+    expect((await login('priya.kale@example.test')).status).toBe(200);
+    expect((await edit(viewer.id, { name: 'Priya K.' })).body.data).toMatchObject({ name: 'Priya K.', role: 'ADMIN' });
+    const [event] = await audits('edp.user.update');
+    expect(event).toMatchObject({ resource_id: viewer.id, actor_id: admin.id, details: { role: 'ADMIN' } });
+    expect(JSON.stringify(event)).not.toMatch(/priya/i);
+  });
+
+  it('refuses a taken email, one\'s own role, a wrong body and an unknown user', async () => {
+    const viewer = await makePanelUser('VIEWER');
+    expect((await edit(viewer.id, { email: 'lead.auditor@example.test' })).status).toBe(409);
+    const own = await edit(admin.id, { role: 'VIEWER' });
+    expect({ status: own.status, message: own.body.message }).toEqual({ status: 409, message: 'You cannot change your own role' });
+    expect((await edit(admin.id, { name: 'Lead Auditor (HQ)' })).status).toBe(200);
+    expect(fieldsOf(await edit(viewer.id, {}))).toEqual(['body']);
+    expect(fieldsOf(await edit(viewer.id, { role: 'BOSS', email: 'x' }))).toEqual(['body.email', 'body.role']);
+    expect((await edit(UNKNOWN_ID, { name: 'Nobody' })).status).toBe(404);
+    expect((await edit(viewer.id, { name: 'Not me' }, viewer.token)).status).toBe(403);
+  });
+
+  it('deletes a user: signed out at once, cannot sign in, the email is free again', async () => {
+    const viewer = await makePanelUser('VIEWER', { email: 'gone@example.test' });
+    const res = await del(viewer.id);
+    expect({ status: res.status, message: res.body.message }).toEqual({ status: 200, message: 'User deleted' });
+    expect((await get('/manage/me', viewer.token)).status).toBe(401);
+    expect((await login('gone@example.test')).status).toBe(401);
+    expect((await get('/manage/users', admin.token)).body.data.map((u: { id: string }) => u.id)).not.toContain(viewer.id);
+    expect((await del(viewer.id)).status).toBe(404);
+    expect((await makePanelUser('VIEWER', { email: 'gone@example.test' })).id).not.toBe(viewer.id);
+    const [event] = await audits('edp.user.delete');
+    expect(event).toMatchObject({ resource_id: viewer.id, actor_id: admin.id, details: { role: 'VIEWER' } });
+  });
+
+  it('lets nobody delete themself, and keeps one active Admin', async () => {
+    const own = await del(admin.id);
+    expect({ status: own.status, message: own.body.message }).toEqual({ status: 409, message: 'You cannot delete your own account' });
+    const other = await makePanelUser('ADMIN');
+    await pool.query(`UPDATE panel_users SET is_active = false WHERE id = $1`, [admin.id]);
+    /* The other one is now the only active Admin: the inactive one may not take it away. */
+    expect((await del(other.id)).status).toBe(401);
+    await pool.query(`UPDATE panel_users SET is_active = true WHERE id = $1`, [admin.id]);
+    expect((await edit(other.id, { role: 'VIEWER' })).status).toBe(200);
+    expect((await del(other.id)).status).toBe(200);
+    expect((await del(admin.id, (await makePanelUser('VIEWER')).token)).status).toBe(403);
   });
 });

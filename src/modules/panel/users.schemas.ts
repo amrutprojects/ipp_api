@@ -23,6 +23,18 @@ export const newUserBody = z
   .strict();
 export type NewUserBody = z.infer<typeof newUserBody>;
 
+/* Name, email and role of a user; the password stays (the user changes it). */
+export const updateUserBody = z
+  .object({
+    name: content('Name', 150, 2),
+    email,
+    role: z.enum(['ADMIN', 'VIEWER'], { errorMap: () => ({ message: 'Choose Admin or Viewer' }) }),
+  })
+  .partial()
+  .strict()
+  .refine((b) => Object.keys(b).length > 0, 'Nothing to change');
+export type UpdateUserBody = z.infer<typeof updateUserBody>;
+
 export const userParams = z.object({ id: uuid() });
 export const userStatusBody = z
   .object({

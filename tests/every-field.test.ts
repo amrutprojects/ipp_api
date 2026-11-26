@@ -150,7 +150,7 @@ describe('an optional field', () => {
     const { basic } = await steps({ father_name: 'R4mesh' });
     const res = await step(token, 1, { ...basic, aadhaar_number: '234567890123' });
     expect(details(res)).toEqual([
-      { field: 'body.father_name', message: "Father Name may contain only letters, spaces and . ' -" },
+      { field: 'body.father_name', message: 'Father Name may contain only letters and spaces' },
       { field: 'body.aadhaar_number', message: 'Aadhaar Number must be 12 digits with a valid checksum' },
     ]);
   });
@@ -359,7 +359,7 @@ describe('the type of a field of the program', () => {
 });
 
 describe('the checks of a field of the program', () => {
-  it('are added to its own format', async () => {
+  it('are all it is checked by beyond its type', async () => {
     await set('date_of_birth', { validation: { rules: [{ type: 'min_age', value: 18 }] } });
     await set('landmark', {
       required: true,
@@ -385,7 +385,7 @@ describe('the checks of a field of the program', () => {
     ]);
     const fixed = { ...basic, date_of_birth: '2003-04-15', landmark: 'At the park', gender: 'Female' };
     expect(details(await step(token, 1, { ...fixed, date_of_birth: '2003-02-31' })).map((d) => d.message)).toEqual([
-      'Date of Birth is not a real date',
+      'Date of Birth must be a real date in YYYY-MM-DD format',
       'Start with Near',
     ]);
     expect((await step(token, 1, { ...fixed, landmark: 'Near the park' })).status).toBe(200);

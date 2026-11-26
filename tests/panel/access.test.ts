@@ -40,6 +40,8 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['post', '/manage/link/test', 'admin'],
   ['get', '/manage/users', 'admin'],
   ['post', '/manage/users', 'admin'],
+  ['patch', '/manage/users/:id', 'admin'],
+  ['delete', '/manage/users/:id', 'admin'],
   ['patch', '/manage/users/:id/status', 'admin'],
 ];
 const declared = () => panelApis.flatMap((a) => a.endpoints);
@@ -56,10 +58,10 @@ beforeAll(async () => {
 afterAll(closeDatabase);
 
 describe('who may call the panel', () => {
-  it('has the 33 endpoints of the panel, each with its guard', () => {
+  it('has the 35 endpoints of the panel, each with its guard', () => {
     const sorted = (list: string[][]) => list.map((e) => e.join(' ')).sort();
     expect(sorted(declared().map((e) => [e.method, e.path, e.auth]))).toEqual(sorted(ENDPOINTS));
-    expect(ENDPOINTS).toHaveLength(33);
+    expect(ENDPOINTS).toHaveLength(35);
   });
 
   it.each(ENDPOINTS.filter(([, , auth]) => auth !== 'public'))('%s %s needs a panel session', async (method, path) => {

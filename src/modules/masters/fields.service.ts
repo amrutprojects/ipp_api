@@ -1,25 +1,24 @@
-import { one, transaction, type Db } from '../../db/pool';
+import { one, rows, transaction, type Db } from '../../db/pool';
 import { AppError } from '../../http/errors';
 import { byType, typesOf } from '../../program/built-in';
 import { CUSTOM_KEY_PREFIX, CUSTOM_SLUG_MAX, fieldOptionKind, ORDER_MAX } from '../../program/constants';
 import { typeIssue } from '../../program/field-types';
-import { loadProgram, optionsKind, type ProgramField } from '../../program/masters';
+import { optionsKind, type ProgramField } from '../../program/masters';
 import { validationIssue } from '../../program/validation';
 import { lock, orConflict, record, type By } from './common.service';
 import { NO_CHOICES, NO_CHOICES_HERE, type NewFieldBody, type TestValidationBody, type UpdateFieldBody } from './fields.schemas';
-import { checkedValidation, keptFor, stored } from './validation.service';
+import { checkedValidation, keptFor, stored, type FieldsAround } from './validation.service';
 import { addChoices } from './options.service';
 
 /*
  * The form's fields. Every one can be changed in everything: its labels, help texts, order, step, type, checks, and whether it
- * is required and asked at all. Only the types of some of the program's own are limited (built-in.ts: typesOf). The ones an
- * ADMIN adds (key x_…) can be deleted too; the answers already given stay stored with their forms.
+ * is required and asked at all. Only the types of some of the program's own are limited (built-in.ts: typesOf). Every field
+ * can be deleted and brought back: the answers already given stay stored with their forms.
  */
 const NOT_THIS_TYPE = 'This field cannot have this type';
 const CHOICES_ELSEWHERE = 'The choices of this field are a list of their own: change them there.';
-const NOT_DELETABLE = 'This field comes with the program and cannot be deleted. Switch it off instead.';
 
-const fieldDto = (f: ProgramField) => ({
+const fieldDto = (f: ListedField) => ({
   id: f.id,
   key: f.key,
   step: f.step,
@@ -36,15 +35,35 @@ const fieldDto = (f: ProgramField) => ({
   help_en: f.helpEn,
   help_mr: f.helpMr,
   validation: f.validation,
+  created_at: f.createdAt,
+  updated_at: f.updatedAt,
+  deleted_at: f.deletedAt,
 });
 
-/* A field, locked until the transaction ends. */
-async function getField(db: Db, id: string): Promise<ProgramField> {
-  const row = await one<ProgramField>(
-    `SELECT id, key, step, type, label_en AS "labelEn", label_mr AS "labelMr", required, is_active AS "isActive",
-            display_order AS "displayOrder", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation
-     FROM program_fields WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-    [id],
+type ListedField = ProgramField & { createdAt: string; updatedAt: string; deletedAt: string | null };
+const COLUMNS = `id, key, step, type, label_en AS "labelEn", label_mr AS "labelMr", required, is_active AS "isActive",
+  display_order AS "displayOrder", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation,
+  (deleted_at IS NOT NULL) AS "isDeleted", created_at AS "createdAt", updated_at AS "updatedAt", deleted_at AS "deletedAt"`;
+
+/* The fields of Masters → Form fields (deleted = the ones that were deleted, to bring back), in the form's order. */
+const fieldRows = (deleted: boolean, db?: Db) =>
+  rows<ListedField>(
+    `SELECT ${COLUMNS} FROM program_fields WHERE (deleted_at IS NOT NULL) = $1 ORDER BY step, display_order, created_at, key`,
+    [deleted],
+    db,
+  );
+
+/* The keys a check may name ("different from"): the fields that are not deleted. */
+const aroundOf = async (db: Db, self: string | null): Promise<FieldsAround> => ({
+  keys: (await fieldRows(false, db)).map((f) => f.key),
+  self,
+});
+
+/* A field (a deleted one only when asked for), locked until the transaction ends. */
+async function getField(db: Db, id: string, deleted = false): Promise<ListedField> {
+  const row = await one<ListedField>(
+    `SELECT ${COLUMNS} FROM program_fields WHERE id = $1 AND (deleted_at IS NOT NULL) = $2 FOR UPDATE`,
+    [id, deleted],
     db,
   );
   if (!row) throw AppError.notFound('Field not found');
@@ -68,11 +87,13 @@ async function newKey(db: Db, label: string): Promise<string> {
 }
 
 export const fieldsService = {
-  list: async () => (await loadProgram()).fields.map(fieldDto),
+  list: async () => (await fieldRows(false)).map(fieldDto),
+  /* The deleted ones, to bring back. */
+  deleted: async () => (await fieldRows(true)).map(fieldDto),
 
   async create(who: By, body: NewFieldBody) {
-    const validation = await checkedValidation(body.type, body.validation ?? null);
     return transaction(async (db) => {
+      const validation = await checkedValidation(body.type, body.validation ?? null, await aroundOf(db, null));
       await lock(db, 'program-fields');
       const key = await newKey(db, body.label_en);
       const row = await one<{ id: string }>(
@@ -134,7 +155,9 @@ export const fieldsService = {
             body.step ?? before.step,
             type,
             stored(
-              body.validation === undefined ? keptFor(type, before.validation) : await checkedValidation(type, body.validation),
+              body.validation === undefined
+                ? keptFor(type, before.validation)
+                : await checkedValidation(type, body.validation, await aroundOf(db, before.key)),
             ),
           ],
         );
@@ -159,13 +182,26 @@ export const fieldsService = {
     return { valid: !message, messages: message ? [message] : [] };
   },
 
-  /* Own fields only; the values forms already hold stay stored. */
+  /*
+   * Any field: it is no longer asked, and leaves the list for "Deleted fields", from where it can be brought back. The values
+   * forms already hold stay stored (and shown, as of a switched-off field).
+   */
   remove(who: By, id: string) {
     return transaction(async (db) => {
       const field = await getField(db, id);
-      if (!field.isCustom) throw AppError.conflict(NOT_DELETABLE);
       await db.query('UPDATE program_fields SET deleted_at = now(), is_active = false WHERE id = $1', [id]);
       await record(db, who, 'edp.field.delete', 'program_fields', id, { key: field.key });
+    });
+  },
+
+  /* A deleted field back in the list, switched off: it is asked again once it is switched on. */
+  restore(who: By, id: string) {
+    return transaction(async (db) => {
+      await lock(db, 'program-fields');
+      const field = await getField(db, id, true);
+      await db.query('UPDATE program_fields SET deleted_at = NULL, is_active = false WHERE id = $1', [id]);
+      await record(db, who, 'edp.field.restore', 'program_fields', id, { key: field.key });
+      return fieldDto(await getField(db, id));
     });
   },
 };

@@ -94,6 +94,34 @@ describe('PUT /manage/applicants/:id/form', () => {
     expect(JSON.stringify(log)).not.toMatch(/Kaveri|411001/);
   });
 
+  it('the sign-in account takes a corrected name or mobile number only when it can hold it', async () => {
+    const s = await makeApplication('SUBMITTED', { centre, account: { first_name: 'Asha', last_name: 'Patil', mobile: '9876501234' } });
+    const account = () =>
+      one<{ first_name: string; last_name: string; mobile: string }>(
+        `SELECT first_name, last_name, mobile FROM student_accounts WHERE id = $1`,
+        [s.student.id],
+      );
+    /* The checks are taken away in Masters → Form fields: the form takes anything, the account keeps what it can hold. */
+    await pool.query(`UPDATE program_fields SET validation = NULL WHERE key IN ('first_name', 'mobile_number')`);
+    try {
+      const long = 'A'.repeat(120);
+      expect((await edit(s.student.id, { first_name: long, mobile_number: '12345' })).status).toBe(200);
+      expect(await account()).toEqual({ first_name: 'Asha', last_name: 'Patil', mobile: '9876501234' });
+      expect((await view(s.student.id)).form).toMatchObject({ first_name: long, mobile_number: '12345' });
+      /* A name and a mobile number it can hold: taken. */
+      expect((await edit(s.student.id, { first_name: 'Asha Rani', mobile_number: '+91 91234 56780' })).status).toBe(200);
+      expect(await account()).toEqual({ first_name: 'Asha Rani', last_name: 'Patil', mobile: '9123456780' });
+    } finally {
+      await pool.query(
+        `UPDATE program_fields SET validation = $2::jsonb WHERE key = $1`,
+        ['first_name', JSON.stringify({ rules: [{ type: 'letters' }, { type: 'max_length', value: 100 }], custom: [] })],
+      );
+      await pool.query(`UPDATE program_fields SET validation = $1::jsonb WHERE key = 'mobile_number'`, [
+        JSON.stringify({ rules: [{ type: 'indian_mobile' }], custom: [] }),
+      ]);
+    }
+  });
+
   it('checks the changed values as the student’s form is checked, every problem at once', async () => {
     const s = await makeApplication('SUBMITTED', { centre });
     const bad = await edit(s.student.id, {

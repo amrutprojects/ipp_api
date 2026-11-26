@@ -107,7 +107,11 @@ describe('GET /manage/fields', () => {
       options_kind: null,
       help_en: null,
       help_mr: null,
-      validation: null,
+      /* The checks it starts with, to change in the master like any other. */
+      validation: { rules: [{ type: 'max_length', value: 200 }], custom: [] },
+      created_at: expect.any(String),
+      updated_at: expect.any(String),
+      deleted_at: null,
     });
     const kinds = Object.fromEntries(all.map((f) => [f.key, f.options_kind]));
     expect(kinds).toMatchObject({
@@ -149,6 +153,9 @@ describe('POST /manage/fields', () => {
       help_en: null,
       help_mr: null,
       validation: null,
+      created_at: expect.any(String),
+      updated_at: expect.any(String),
+      deleted_at: null,
     });
     expect(
       await add({ step: 2, label_en: 'अनुभव', type: 'NUMBER', help_en: 'In years', help_mr: ' ', order: 5, is_active: false }),
@@ -271,6 +278,7 @@ describe('PATCH /manage/fields/:id', () => {
     expect(renamed.body.message).toBe('Field saved');
     expect(renamed.body.data).toEqual({
       ...before,
+      updated_at: expect.any(String),
       label_en: 'Sex',
       label_mr: 'लिंग (नवे)',
       help_en: 'As on the Aadhaar',
@@ -298,6 +306,7 @@ describe('PATCH /manage/fields/:id', () => {
       const other = f.step === 1 ? 2 : 1;
       expect((await change(f.key, { is_active: false, required: !f.required, step: other })).body.data).toEqual({
         ...f,
+        updated_at: expect.any(String),
         is_active: false,
         required: !f.required,
         step: other,
@@ -320,7 +329,12 @@ describe('PATCH /manage/fields/:id', () => {
       type: 'TEXTAREA',
       validation: { rules: [{ type: 'min_length', value: 3 }], custom: [] },
     };
-    expect((await change('father_name', changes)).body.data).toEqual({ ...father, ...changes, by_type: true });
+    expect((await change('father_name', changes)).body.data).toEqual({
+      ...father,
+      ...changes,
+      by_type: true,
+      updated_at: expect.any(String),
+    });
     /* What is sent may repeat what is there. */
     expect((await change('father_name', changes)).status).toBe(200);
   });
@@ -399,14 +413,35 @@ describe('DELETE /manage/fields/:id', () => {
     refused(await get(admin, `/masters/${encodeURIComponent('FIELD:x_blood')}`), 404, 'List not found');
   });
 
-  it('keeps the fields of the program', async () => {
-    for (const key of ['first_name', 'gender'])
-      refused(
-        await del(admin, `/fields/${(await field(key)).id}`),
-        409,
-        'This field comes with the program and cannot be deleted. Switch it off instead.',
-      );
-    expect(await list()).toHaveLength(36);
+  it('deletes a field of the program too, and brings it back switched off; its answers stay', async () => {
+    const centre = await makeCentre();
+    const { applicationId } = await makeApplication('SUBMITTED', { centre, values: { landmark: 'Near the park' } });
+    const landmark = await field('landmark');
+    const res = await del(admin, `/fields/${landmark.id}`);
+    expect({ status: res.status, message: res.body.message }).toEqual({ status: 200, message: 'Field deleted' });
+    expect(await field('landmark')).toBeUndefined();
+    expect(await list()).toHaveLength(35);
+    /* Not asked, not checked; the answer given stays stored and shown, as of a switched-off field. */
+    expect((await loadProgram()).activeFields().map((f) => f.key)).not.toContain('landmark');
+    expect(await errors(1, { landmark: 'x'.repeat(999) })).toEqual([]);
+    expect((await one<{ v: string }>(`SELECT data ->> 'landmark' AS v FROM applications WHERE id = $1`, [applicationId]))!.v).toBe(
+      'Near the park',
+    );
+    const deleted = (await get(admin, '/fields/deleted')).body.data as Field[];
+    expect(deleted.map((f) => f.key)).toEqual(['landmark']);
+    expect(deleted[0]).toMatchObject({ is_active: false, deleted_at: expect.any(String) });
+    refused(await patch(admin, `/fields/${landmark.id}`, { is_active: true }), 404, 'Field not found');
+
+    const back = await post(admin, `/fields/${landmark.id}/restore`, {});
+    expect(back.status).toBe(200);
+    expect(back.body.message).toBe('Field restored');
+    expect(back.body.data).toMatchObject({ key: 'landmark', is_active: false, deleted_at: null });
+    expect((await get(admin, '/fields/deleted')).body.data).toEqual([]);
+    expect((await change('landmark', { is_active: true })).body.data.is_active).toBe(true);
+    expect(await errors(1, { landmark: 'x'.repeat(151) })).toEqual([
+      { field: 'body.landmark', message: 'Landmark must be at most 150 characters' },
+    ]);
+    refused(await post(admin, `/fields/${landmark.id}/restore`, {}), 404, 'Field not found');
   });
 });
 

@@ -14,7 +14,8 @@ import type { FieldValidation } from './validation';
 
 /*
  * The program's masters as they are now: the choices of every dropdown, the form's fields and its documents, loaded once
- * per request. Switched-off and deleted choices are loaded too, so a value a form already holds still shows its name.
+ * per request. Switched-off and deleted choices are loaded too, so a value a form already holds still shows its name; so are
+ * the program's own fields that were deleted (as switched off), whose answers forms keep. A deleted own field is left out.
  */
 export interface ProgramOption {
   id: string;
@@ -43,6 +44,8 @@ export interface ProgramField {
   helpMr: string | null;
   /* The checks an ADMIN gave it; null = none. */
   validation: FieldValidation | null;
+  /* Deleted in Masters → Form fields: one of the program's own is kept here as a switched-off field (its answers still show). */
+  isDeleted: boolean;
 }
 
 export interface ProgramDocument {
@@ -89,12 +92,16 @@ export class Program {
     return this.byKey.get(key) ?? null;
   }
   activeFields(step?: Step): ProgramField[] {
-    return this.fields.filter((f) => f.isActive && (!step || f.step === step));
+    return this.fields.filter((f) => f.isActive && !f.isDeleted && (!step || f.step === step));
+  }
+  /* The fields of Masters → Form fields: every one that is not deleted. */
+  listedFields(): ProgramField[] {
+    return this.fields.filter((f) => !f.isDeleted);
   }
   /* Whether no form can be without a value of it now. */
   requires(key: string): boolean {
     const f = this.byKey.get(key);
-    return !!f?.isActive && f.required;
+    return !!f?.isActive && !f.isDeleted && f.required;
   }
   /* A field's current label. */
   label(key: string): string {
@@ -161,8 +168,9 @@ export async function loadProgram(db: Db = pool): Promise<Program> {
   const fields = () =>
     rows<ProgramField>(
       `SELECT id, key, step, type, label_en AS "labelEn", label_mr AS "labelMr", required, is_active AS "isActive",
-              display_order AS "displayOrder", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation
-       FROM program_fields WHERE deleted_at IS NULL ORDER BY step, display_order, created_at, key`,
+              display_order AS "displayOrder", is_custom AS "isCustom", help_en AS "helpEn", help_mr AS "helpMr", validation,
+              (deleted_at IS NOT NULL) AS "isDeleted"
+       FROM program_fields WHERE deleted_at IS NULL OR NOT is_custom ORDER BY step, display_order, created_at, key`,
       [],
       db,
     );

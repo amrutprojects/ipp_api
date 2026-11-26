@@ -7,7 +7,7 @@ import { hashPassword, passwordMatches } from '../../lib/passwords';
 import { passwordVersion, signSession } from '../../lib/tokens';
 import { audit } from '../../services/audit';
 import { actor } from './common';
-import type { LoginBody, NewUserBody } from './users.schemas';
+import type { LoginBody, NewUserBody, UpdateUserBody } from './users.schemas';
 
 /* The panel's own sign-in and its users: ADMIN (the Auditor) and VIEWER. */
 
@@ -19,8 +19,9 @@ interface UserRow {
   is_active: boolean;
   last_login_at: Date | null;
   created_at: Date;
+  updated_at: Date;
 }
-const USER_COLUMNS = 'id, name, email, role, is_active, last_login_at, created_at';
+const USER_COLUMNS = 'id, name, email, role, is_active, last_login_at, created_at, updated_at';
 const userDto = (u: UserRow) => ({
   id: u.id,
   name: u.name,
@@ -29,7 +30,9 @@ const userDto = (u: UserRow) => ({
   is_active: u.is_active,
   last_login_at: u.last_login_at,
   created_at: u.created_at,
+  updated_at: u.updated_at,
 });
+const EMAIL_TAKEN = 'A user with this email already exists';
 
 /* -------------------------------------------------------------------------------------------------------------- sign-in */
 
@@ -95,10 +98,69 @@ export async function addUser(req: Request, by: PanelUser, body: NewUserBody) {
       return userDto(user);
     });
   } catch (err) {
-    if (err instanceof DatabaseError && err.constraint === 'uq_panel_users_email')
-      throw AppError.conflict('A user with this email already exists');
+    if (err instanceof DatabaseError && err.constraint === 'uq_panel_users_email') throw AppError.conflict(EMAIL_TAKEN);
     throw err;
   }
+}
+
+/*
+ * The active ADMIN accounts and the user, locked until the transaction ends (as setUserStatus): of two ADMINs who change each
+ * other at the same time, an active ADMIN always remains. The one who asks must still be an active ADMIN.
+ */
+async function lockedUser(db: Parameters<Parameters<typeof transaction>[0]>[0], by: PanelUser, id: string) {
+  const admins = await rows<{ id: string }>(
+    `SELECT id FROM panel_users WHERE role = 'ADMIN' AND is_active AND deleted_at IS NULL ORDER BY id FOR UPDATE`,
+    [],
+    db,
+  );
+  const user = await one<UserRow>(`SELECT ${USER_COLUMNS} FROM panel_users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [id], db);
+  if (!user) throw AppError.notFound('User not found');
+  if (!admins.some((a) => a.id === by.id)) throw AppError.unauthorized('Please log in to continue.');
+  return { user, lastAdmin: user.role === 'ADMIN' && user.is_active && admins.every((a) => a.id === user.id) };
+}
+
+/* Name, email and role. Not one's own role (so nobody locks themself out), nor the last active Admin made a Viewer. */
+export async function updateUser(req: Request, by: PanelUser, id: string, body: UpdateUserBody) {
+  try {
+    return await transaction(async (db) => {
+      const { user, lastAdmin } = await lockedUser(db, by, id);
+      if (body.role && body.role !== user.role && user.id === by.id) throw AppError.conflict('You cannot change your own role');
+      if (body.role === 'VIEWER' && lastAdmin) throw AppError.conflict('At least one active Admin must remain.');
+      const after = (await one<UserRow>(
+        `UPDATE panel_users SET name = $2, email = $3, role = $4, updated_at = now() WHERE id = $1 RETURNING ${USER_COLUMNS}`,
+        [id, body.name ?? user.name, body.email ?? user.email, body.role ?? user.role],
+        db,
+      ))!;
+      await audit.inTx(db, req, {
+        action: 'edp.user.update',
+        resource: 'panel_user',
+        resourceId: id,
+        actor: actor(by),
+        details: { fields: Object.keys(body), role: after.role },
+      });
+      return userDto(after);
+    });
+  } catch (err) {
+    if (err instanceof DatabaseError && err.constraint === 'uq_panel_users_email') throw AppError.conflict(EMAIL_TAKEN);
+    throw err;
+  }
+}
+
+/* Deletes a user: signed out at once, cannot sign in; its records keep its name. Not oneself, nor the last active Admin. */
+export async function deleteUser(req: Request, by: PanelUser, id: string) {
+  return transaction(async (db) => {
+    const { user, lastAdmin } = await lockedUser(db, by, id);
+    if (user.id === by.id) throw AppError.conflict('You cannot delete your own account');
+    if (lastAdmin) throw AppError.conflict('At least one active Admin must remain.');
+    await db.query(`UPDATE panel_users SET deleted_at = now(), is_active = false, updated_at = now() WHERE id = $1`, [id]);
+    await audit.inTx(db, req, {
+      action: 'edp.user.delete',
+      resource: 'panel_user',
+      resourceId: id,
+      actor: actor(by),
+      details: { role: user.role },
+    });
+  });
 }
 
 /*

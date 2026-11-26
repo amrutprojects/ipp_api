@@ -1,8 +1,8 @@
 import { Api } from '../../http/api';
 import { panelOf } from '../../http/auth';
 import { created, ok } from '../../http/respond';
-import { loginBody, newUserBody, userParams, userStatusBody } from './users.schemas';
-import { addUser, listUsers, login, setUserStatus } from './users.service';
+import { loginBody, newUserBody, updateUserBody, userParams, userStatusBody } from './users.schemas';
+import { addUser, deleteUser, listUsers, login, setUserStatus, updateUser } from './users.service';
 
 export const usersApi = new Api('Panel: sign-in and users');
 const api = usersApi;
@@ -37,6 +37,34 @@ api.post(
     status: 201,
   },
   async ({ req, res, body }) => created(res, await addUser(req, panelOf(res), body), 'User added'),
+);
+
+api.patch(
+  '/manage/users/:id',
+  {
+    auth: 'admin',
+    summary: "Changes a panel user's name, email or role (409: the email is taken, one's own role, the last active Admin)",
+    returns: 'ManageUser',
+    params: userParams,
+    notFound: 'User not found',
+    body: updateUserBody,
+  },
+  async ({ req, res, params, body }) => ok(res, await updateUser(req, panelOf(res), params.id, body), 'User saved'),
+);
+
+api.delete(
+  '/manage/users/:id',
+  {
+    auth: 'admin',
+    summary: 'Deletes a panel user (409: oneself, or the last active Admin)',
+    returns: 'null',
+    params: userParams,
+    notFound: 'User not found',
+  },
+  async ({ req, res, params }) => {
+    await deleteUser(req, panelOf(res), params.id);
+    ok(res, null, 'User deleted');
+  },
 );
 
 api.patch(

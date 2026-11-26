@@ -6,7 +6,7 @@ verification, approval, Edit form, batches, follow-ups, settings and panel users
 **Sources (read-only analysis).** Frontend `D:\Sarthi\EDP-Candidates-Registration` at commit `4a5d910` (25 Nov 2026):
 `src/pages/manage/*` (without `masters/` and `Centre*`), `src/api.ts`, `src/session.tsx`, `src/types.ts`, `src/form.ts`,
 `src/validation.ts`, `src/components/*`, and the tests `approval`, `manage`, `batches`, `applicant-detail`, `edit-form`,
-`student-filters`, `settings`, `users`, `validation*`. Server behaviour: `D:\Sarthi\amrut-kalash-api` at commit `d9f3638`,
+`student-filters`, `settings`, `users`, `validation*`. Server behaviour: `D:\Sarthi\sarthi-api` at commit `d9f3638`,
 `src/modules/students/edp`, its migrations and `tests/e2e/edp-portal.e2e.test.ts` (the uncommitted work there is OTP-only
 and does not touch this part).
 

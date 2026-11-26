@@ -31,6 +31,8 @@ const ENDPOINTS = [
   ['patch', '/manage/documents/:id', 'admin'],
   ['delete', '/manage/documents/:id', 'admin'],
   ['get', '/manage/fields', 'panel'],
+  ['get', '/manage/fields/deleted', 'panel'],
+  ['post', '/manage/fields/:id/restore', 'admin'],
   ['post', '/manage/fields', 'admin'],
   ['post', '/manage/fields/test-validation', 'admin'],
   ['patch', '/manage/fields/:id', 'admin'],

@@ -4,6 +4,7 @@ import { ageOn, today } from '../../src/lib/dates';
 import type { Form } from '../../src/program/constants';
 import { checkForm, fieldText, referenceNames, viewFields } from '../../src/program/form';
 import { loadProgram } from '../../src/program/masters';
+import { DEFAULT_CHECKS } from '../../src/program/rules';
 import { closeDatabase, resetDatabase } from '../helpers/db';
 import { districtId, formValues, makeCentre, newAadhaar, optionId } from '../helpers/factory';
 
@@ -21,6 +22,10 @@ async function problems(over: Form = {}, opts: Parameters<typeof checkForm>[2] =
   return Object.fromEntries(errors.map((e) => [e.field!.replace('body.', ''), e.message]));
 }
 const sql = (text: string, params: unknown[] = []) => pool.query(text, params);
+/* A field's checks as Masters → Form fields saves them; null = none. Put back afterwards with `startingChecks`. */
+const checks = (key: string, v: object | null) =>
+  sql(`UPDATE program_fields SET validation = $2::jsonb WHERE key = $1`, [key, v && JSON.stringify(v)]);
+const startingChecks = (key: string) => checks(key, DEFAULT_CHECKS[key] ?? null);
 
 describe('checkForm', () => {
   it('accepts a complete form, and one step of it', async () => {
@@ -36,16 +41,117 @@ describe('checkForm', () => {
     await sql(`UPDATE program_fields SET label_en = 'First Name' WHERE key = 'first_name'`);
   });
 
-  it('uses the current label in the messages of the formats', async () => {
+  it('checks the fields of the program by the checks they start with, named by the current label', async () => {
     expect(
       await problems({ first_name: 'A1', pin_code: '012345', mobile_number: '12', aadhaar_number: '123456789012', score: 'x' }),
     ).toEqual({
-      first_name: "First Name may contain only letters, spaces and . ' -",
+      first_name: 'First Name may contain only letters and spaces',
       pin_code: 'PIN Code must be exactly 6 digits',
       mobile_number: 'Mobile Number must be a 10-digit Indian number starting 6–9',
       aadhaar_number: 'Aadhaar Number must be 12 digits with a valid checksum',
-      score: 'Enter a number with at most 2 decimal places',
+      score: 'Score must be a number',
     });
+    expect(await problems({ score: '72.555' })).toEqual({ score: 'Score must have at most 2 decimal places' });
+    await sql(`UPDATE program_fields SET label_en = 'E-mail ID' WHERE key = 'email'`);
+    await sql(`UPDATE program_fields SET label_en = 'Birth Date' WHERE key = 'date_of_birth'`);
+    expect(await problems({ email: 'not-an-address', date_of_birth: '2999-01-01' })).toEqual({
+      email: 'E-mail ID must be a valid email address',
+      date_of_birth: 'Birth Date cannot be in the future',
+    });
+    await sql(`UPDATE program_fields SET label_en = 'Email' WHERE key = 'email'`);
+    await sql(`UPDATE program_fields SET label_en = 'Date of Birth' WHERE key = 'date_of_birth'`);
+  });
+
+  it('checks the date of birth by its checks only: 14 to 100 to start with, whatever is set up after', async () => {
+    const born = (age: number, days = 0) => {
+      const [y, m, d] = today().split('-').map(Number) as [number, number, number];
+      return new Date(Date.UTC(y - age, m - 1, d + days)).toISOString().slice(0, 10);
+    };
+    const ages = (rules: object[]) => checks('date_of_birth', rules.length ? { rules, custom: [] } : null);
+    try {
+      expect(await problems({ date_of_birth: born(13) })).toEqual({ date_of_birth: 'Date of Birth: age must be at least 14 years' });
+      expect(await problems({ date_of_birth: born(101) })).toEqual({ date_of_birth: 'Date of Birth: age must be at most 100 years' });
+
+      await ages([{ type: 'min_age', value: 18 }, { type: 'max_age', value: 35 }]);
+      for (const age of [10, 17]) {
+        expect(await problems({ date_of_birth: born(age) })).toEqual({ date_of_birth: 'Date of Birth: age must be at least 18 years' });
+      }
+      expect(await problems({ date_of_birth: born(36) })).toEqual({ date_of_birth: 'Date of Birth: age must be at most 35 years' });
+      expect(await problems({ date_of_birth: born(18) })).toEqual({});
+      expect(await problems({ date_of_birth: born(36, 1) })).toEqual({});
+
+      /* Only an oldest age: any younger one is accepted. */
+      await ages([{ type: 'max_age', value: 35 }]);
+      expect(await problems({ date_of_birth: born(10) })).toEqual({});
+      expect(await problems({ date_of_birth: born(36) })).toEqual({ date_of_birth: 'Date of Birth: age must be at most 35 years' });
+      /* No checks at all: any real day, also one in the future; still a real day. */
+      await ages([]);
+      expect(await problems({ date_of_birth: '2999-01-01' })).toEqual({});
+      expect(await problems({ date_of_birth: '2001-02-30' })).toEqual({
+        date_of_birth: 'Date of Birth must be a real date in YYYY-MM-DD format',
+      });
+    } finally {
+      await startingChecks('date_of_birth');
+    }
+  });
+
+  it('checks nothing of a field beyond its type once its checks are taken away', async () => {
+    const keys = ['first_name', 'pin_code', 'mobile_number', 'aadhaar_number', 'alternate_mobile_number', 'score'];
+    for (const key of keys) await checks(key, null);
+    try {
+      expect(
+        await problems({
+          first_name: 'A1',
+          pin_code: '0',
+          mobile_number: '12',
+          aadhaar_number: '1234',
+          alternate_mobile_number: '12',
+          score: '250.125',
+        }),
+      ).toEqual({});
+      /* Its type still: a number is a number. */
+      expect(await problems({ score: 'x' })).toEqual({ score: 'Score must be a number' });
+    } finally {
+      for (const key of keys) await startingChecks(key);
+    }
+  });
+
+  it('a check across fields is one of the checks too: "different from" names the other field by its label', async () => {
+    expect(await problems({ alternate_mobile_number: '+91 ' + form.mobile_number })).toEqual({
+      alternate_mobile_number: 'Alternate Mobile Number must be different from Mobile Number',
+    });
+    await checks('alternate_mobile_number', { rules: [{ type: 'different_from', value: 'first_name' }], custom: [] });
+    try {
+      expect(await problems({ alternate_mobile_number: form.mobile_number! })).toEqual({});
+      expect(await problems({ alternate_mobile_number: form.first_name! })).toEqual({
+        alternate_mobile_number: 'Alternate Mobile Number must be different from First Name',
+      });
+    } finally {
+      await startingChecks('alternate_mobile_number');
+    }
+    /* The score within its grading: taken away, a percentage over 100 is accepted. */
+    await checks('score', { rules: [{ type: 'max_decimals', value: 2 }], custom: [] });
+    try {
+      expect(await problems({ score: '100.5' })).toEqual({});
+    } finally {
+      await startingChecks('score');
+    }
+  });
+
+  it("checks a mobile number's lengths on the number itself, without +91 or spaces", async () => {
+    await checks('mobile_number', {
+      rules: [{ type: 'indian_mobile' }, { type: 'min_length', value: 10 }, { type: 'max_length', value: 10 }],
+      custom: [],
+    });
+    try {
+      expect(await problems({ mobile_number: '+91 98765 01234' })).toEqual({});
+      expect(await problems({ mobile_number: '09876501234' })).toEqual({});
+      expect(await problems({ mobile_number: '98765' })).toEqual({
+        mobile_number: 'Mobile Number must be a 10-digit Indian number starting 6–9',
+      });
+    } finally {
+      await startingChecks('mobile_number');
+    }
   });
 
   it('leaves a switched-off field out, and does not read it in other rules', async () => {
@@ -152,7 +258,7 @@ describe('checkForm', () => {
     expect(await problems({ qualification_completed_on: '2026-01-01', date_of_birth: '2012-01-01' })).toEqual({});
     expect(await problems({ qualification_completed_on: '2026-01-02', date_of_birth: '2012-01-02' })).toEqual({
       qualification_completed_on: 'Qualification Completed On cannot be in the future',
-      date_of_birth: 'Applicant must be between 14 and 100 years old',
+      date_of_birth: 'Date of Birth: age must be at least 14 years',
     });
     expect(ageOn('2000-02-29', '2025-02-28')).toBe(24);
     expect(ageOn('2000-02-29', '2025-03-01')).toBe(25);

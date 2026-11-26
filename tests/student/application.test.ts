@@ -405,7 +405,7 @@ describe('PUT /application/steps/:step, complete = true', () => {
     expect(await issue({ score: '100.5' })).toEqual({ field: 'body.score', message: 'Percentage must be between 0 and 100' });
     expect(await issue({ score: '72.555' })).toEqual({
       field: 'body.score',
-      message: 'Enter a number with at most 2 decimal places',
+      message: 'Score must have at most 2 decimal places',
     });
     const cgpa = { grading_type: 'CGPA', cgpa_scale: '4' };
     expect(await issue({ ...cgpa, cgpa_scale: '' })).toEqual({ field: 'body.cgpa_scale', message: 'CGPA Scale is required' });

@@ -83,7 +83,8 @@ describe('GET /options', () => {
       options_kind: null,
       help_en: null,
       help_mr: null,
-      validation: null,
+      /* The checks it starts with: sent like any field's, for the portal to check the same. */
+      validation: { rules: [{ type: 'letters' }, { type: 'max_length', value: 100 }], custom: [] },
     });
     const field = (key: string) => o.fields.find((f: { key: string }) => f.key === key);
     expect(field('educational_status')).toMatchObject({

@@ -8,13 +8,31 @@ import { fieldsService } from './fields.service';
 /* Masters → Form fields: what steps 1 and 2 ask, and under which names. */
 export const fieldsApi = new Api('Masters: form fields');
 const FIELD =
-  'MasterField { id, key, step, label_en, label_mr, required, is_active, order, custom, by_type, type, types, options_kind, help_en, help_mr, validation }';
+  'MasterField { id, key, step, label_en, label_mr, required, is_active, order, custom, by_type, type, types, options_kind, help_en, help_mr, validation, created_at, updated_at, deleted_at }';
 const NOT_FOUND = 'Field not found';
 
 fieldsApi.get(
   '/manage/fields',
   { auth: 'panel', summary: 'The fields of steps 1 and 2, also the switched-off ones', returns: `${FIELD}[]` },
   async ({ res }) => ok(res, await fieldsService.list()),
+);
+
+fieldsApi.get(
+  '/manage/fields/deleted',
+  { auth: 'panel', summary: 'The deleted fields, to bring back', returns: `${FIELD}[]` },
+  async ({ res }) => ok(res, await fieldsService.deleted()),
+);
+
+fieldsApi.post(
+  '/manage/fields/:id/restore',
+  {
+    auth: 'admin',
+    summary: 'Brings a deleted field back, switched off',
+    returns: FIELD,
+    params: idParams,
+    notFound: NOT_FOUND,
+  },
+  async (c) => ok(c.res, await fieldsService.restore(by(c), c.params.id), 'Field restored'),
 );
 
 fieldsApi.post(
@@ -58,7 +76,7 @@ fieldsApi.delete(
   '/manage/fields/:id',
   {
     auth: 'admin',
-    summary: 'Deletes an own field; answers already given stay stored with their forms',
+    summary: 'Deletes a field (it can be brought back); answers already given stay stored with their forms',
     returns: 'null',
     params: idParams,
     notFound: NOT_FOUND,

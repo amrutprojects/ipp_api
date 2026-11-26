@@ -7,7 +7,7 @@ import type { PanelUser } from '../../http/auth';
 import { AppError, type FieldError } from '../../http/errors';
 import { aadhaarBlindIndex, encryptAadhaar, maskAadhaar } from '../../lib/aadhaar';
 import { logger } from '../../lib/logger';
-import { normaliseMobile } from '../../lib/text';
+import { MOBILE_RE, normaliseMobile } from '../../lib/text';
 import type { Form } from '../../program/constants';
 import { syncDocumentsVerified } from '../../program/document-checks';
 import { checkForm, fieldText, referenceNames } from '../../program/form';
@@ -50,6 +50,9 @@ const recordEdit = (db: Db, applicationId: string, user: PanelUser, changes: Edi
     user.id,
     user.name,
   ]);
+
+/* The longest name the sign-in account holds (student_accounts.first_name / last_name). */
+const ACCOUNT_NAME_MAX = 100;
 
 /* ---------------------------------------------------------------------------------------------------------------- form */
 
@@ -137,17 +140,21 @@ export async function editForm(req: Request, user: PanelUser, accountId: string,
           aadhaar ? aadhaar.slice(-4) : null,
         ],
       );
+      /*
+       * The sign-in account follows the corrected name and mobile number when it can hold them: a name of up to 100
+       * characters, a 10-digit Indian mobile (the OTP is sent to it by SMS). A value the field's checks allow but the account
+       * cannot hold stays on the form only.
+       */
+      const accountName = (v: string | undefined) => (v && v.length <= ACCOUNT_NAME_MAX ? v : '');
       if (values.first_name !== undefined || values.last_name !== undefined)
         await db.query(
           `UPDATE student_accounts SET first_name = coalesce(nullif($2, ''), first_name),
              last_name = coalesce(nullif($3, ''), last_name) WHERE id = $1`,
-          [account.id, after.first_name ?? '', after.last_name ?? ''],
+          [account.id, accountName(after.first_name), accountName(after.last_name)],
         );
-      if (values.mobile_number)
-        await db.query(`UPDATE student_accounts SET mobile = $2 WHERE id = $1`, [
-          account.id,
-          normaliseMobile(values.mobile_number),
-        ]);
+      const signInMobile = normaliseMobile(values.mobile_number ?? '');
+      if (MOBILE_RE.test(signInMobile))
+        await db.query(`UPDATE student_accounts SET mobile = $2 WHERE id = $1`, [account.id, signInMobile]);
       await recordEdit(
         db,
         p.id,
