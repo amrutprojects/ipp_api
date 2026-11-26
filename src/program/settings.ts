@@ -6,7 +6,9 @@ import { BATCH_SIZE } from './constants';
 /*
  * The settings the panel edits (table settings, one row per key), with the defaults used until a row is saved. "batch": how
  * many students a new batch has (a district can have a size of its own: districts.batch_size). "support": the contact line students see after submitting and in e-mails. "welcome": the
- * dialog shown once the account is created. "help": the Help button's contact details.
+ * dialog shown once the account is created. "help": the Help button's contact details. "rejection": whether the Auditor
+ * can send a submitted form back to the candidate (an e-mail with the reason; the candidate corrects it, and saving it sends
+ * it back to the Auditor) — off until an ADMIN switches it on.
  */
 export interface SavedMeta {
   /* null = never saved: the defaults are in use. */
@@ -43,11 +45,17 @@ export interface HelpValue {
   fields: HelpField[];
 }
 
+/* "Enable Rejection Email Notification and Resubmission". */
+export interface RejectionValue {
+  enabled: boolean;
+}
+
 export interface SettingValues {
   batch: BatchValue;
   support: SupportValue;
   welcome: WelcomeValue;
   help: HelpValue;
+  rejection: RejectionValue;
 }
 export type SettingKey = keyof SettingValues;
 
@@ -55,6 +63,7 @@ export type BatchSettings = BatchValue & SavedMeta;
 export type SupportSettings = SupportValue & SavedMeta;
 export type WelcomeSettings = WelcomeValue & SavedMeta;
 export type HelpSettings = HelpValue & SavedMeta;
+export type RejectionSettings = RejectionValue & SavedMeta;
 
 /* The most lines of the Help button. */
 export const HELP_FIELDS_MAX = 4;
@@ -83,6 +92,7 @@ const DEFAULTS: { [K in SettingKey]: () => SettingValues[K] } = {
       { label: 'Email ID', value: config.support.email ?? '' },
     ].filter((f) => f.value),
   }),
+  rejection: () => ({ enabled: false }),
 };
 
 const str = (v: unknown, fallback = '') => (typeof v === 'string' ? v : fallback);
@@ -114,6 +124,8 @@ const SHAPES: { [K in SettingKey]: (v: Saved<K>) => SettingValues[K] } = {
       .filter((f) => f.label && f.value)
       .slice(0, HELP_FIELDS_MAX),
   }),
+  /* Unlike the flags above, off unless it was switched on. */
+  rejection: (v) => ({ enabled: v.enabled === true }),
 };
 
 async function read<K extends SettingKey>(key: K, db: Db): Promise<SettingValues[K] & SavedMeta> {
@@ -155,6 +167,7 @@ export async function batchSizeOf(db: Db, districtId: string): Promise<{ size: n
 export const supportSettings = (db: Db = pool): Promise<SupportSettings> => read('support', db);
 export const welcomeSettings = (db: Db = pool): Promise<WelcomeSettings> => read('welcome', db);
 export const helpSettings = (db: Db = pool): Promise<HelpSettings> => read('help', db);
+export const rejectionSettings = (db: Db = pool): Promise<RejectionSettings> => read('rejection', db);
 
 /* What students get: the value alone, and the defaults when it cannot be read, so the portal and its e-mails still work. */
 async function forStudents<K extends SettingKey>(key: K): Promise<SettingValues[K]> {

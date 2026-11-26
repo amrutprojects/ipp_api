@@ -1,8 +1,8 @@
 import { Api } from '../../http/api';
 import { panelOf } from '../../http/auth';
 import { ok } from '../../http/respond';
-import { helpSettings, supportSettings, welcomeSettings } from '../../program/settings';
-import { batchSizeBody, helpBody, supportBody, welcomeBody } from './settings.schemas';
+import { helpSettings, rejectionSettings, supportSettings, welcomeSettings } from '../../program/settings';
+import { batchSizeBody, helpBody, rejectionBody, supportBody, welcomeBody } from './settings.schemas';
 import { batchRules, saveBatchSize, saveSettings } from './settings.service';
 
 /* The settings the panel edits: every panel user reads them, an ADMIN saves them. Students get them with GET /options. */
@@ -102,5 +102,29 @@ api.put(
   async ({ req, res, body }) => {
     await saveSettings(req, panelOf(res), 'help', { ...body, fields: body.fields.filter((f) => f.label && f.value) });
     ok(res, await helpSettings(), 'Help contact saved');
+  },
+);
+
+api.get(
+  '/manage/settings/rejection',
+  {
+    auth: 'panel',
+    summary: 'Whether the Auditor can send a submitted form back to the candidate (e-mail, correction, resubmission)',
+    returns: '{ enabled, updated_at, updated_by }',
+  },
+  async ({ res }) => ok(res, await rejectionSettings()),
+);
+api.put(
+  '/manage/settings/rejection',
+  {
+    auth: 'admin',
+    summary:
+      'Switches "Enable Rejection Email Notification and Resubmission" on or off. Forms already with their candidate stay there until resubmitted.',
+    returns: '{ enabled, updated_at, updated_by }',
+    body: rejectionBody,
+  },
+  async ({ req, res, body }) => {
+    await saveSettings(req, panelOf(res), 'rejection', { enabled: body.enabled });
+    ok(res, await rejectionSettings(), body.enabled ? 'Rejection email and resubmission switched on' : 'Rejection email and resubmission switched off');
   },
 );

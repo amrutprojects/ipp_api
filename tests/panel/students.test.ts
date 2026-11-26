@@ -93,6 +93,7 @@ describe('counts, filters and the list', () => {
       approvals: {
         AWAITING: 3,
         RETURNED: 1,
+        WITH_CANDIDATE: 0,
         BATCH: 1,
         DIVISION: 1,
         COEP: 0,
@@ -129,6 +130,7 @@ describe('counts, filters and the list', () => {
       { code: 'MAIN_DONE', label: 'Step 2 filled' },
       { code: 'AUDITOR', label: 'Submitted: with the Auditor' },
       { code: 'RETURNED', label: 'Sent back to the Auditor' },
+      { code: 'WITH_CANDIDATE', label: 'Sent back to the candidate' },
       { code: 'BATCH', label: 'Approved: waiting for a batch' },
       { code: 'DIVISION', label: 'With Divisional Officer' },
       { code: 'COEP', label: 'With COEP' },
@@ -198,6 +200,7 @@ describe('counts, filters and the list', () => {
       follow_up: null,
       can_approve: false,
       can_batch: false,
+      returned_at: null,
       approval: {
         stage: null,
         stage_label: null,
@@ -476,6 +479,7 @@ describe('GET /manage/applicants/:id', () => {
         'edits',
         'can_edit',
         'locked_fields',
+        'returned',
         'approval',
         'history',
       ].sort(),

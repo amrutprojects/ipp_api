@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import type { Request } from 'express';
 import { DatabaseError } from 'pg';
-import { rows, transaction, type Db } from '../../db/pool';
+import { pool, rows, transaction, type Db } from '../../db/pool';
 import type { PanelUser } from '../../http/auth';
 import { AppError, type FieldError } from '../../http/errors';
 import { aadhaarBlindIndex, encryptAadhaar, maskAadhaar } from '../../lib/aadhaar';
@@ -17,6 +17,7 @@ import { loadProgram, type Program } from '../../program/masters';
 import { aadhaarDigits } from '../../program/rules';
 import { folderFor, relocateFiles } from '../../program/folders';
 import { checkUploads, discardFiles, discardUnusedFiles, type CheckedUpload } from '../../program/uploads';
+import { NOT_RETURNED, openReturn, WITH_CANDIDATE } from '../../program/returns';
 import { audit } from '../../services/audit';
 import { storage } from '../../services/storage';
 import {
@@ -35,20 +36,30 @@ import {
 
 /*
  * The Auditor corrects a submitted form and its documents, at any stage until the final approval. Every change is recorded
- * (application_edits) and shown on the student's page.
+ * (application_edits) and shown on the student's page. The candidate corrects their own form the same way while the Auditor
+ * has sent it back to them (program/returns); the Auditor cannot change it meanwhile.
  */
 
-function assertCorrectable(p: Application | null): asserts p is Application {
+/* Who corrects the form: an Auditor (panel user), or the candidate whose form was sent back to them. */
+export type Editor = { kind: 'PANEL'; user: PanelUser } | { kind: 'CANDIDATE'; accountId: string; name: string };
+export const asPanel = (user: PanelUser): Editor => ({ kind: 'PANEL', user });
+const auditActor = (editor: Editor) => (editor.kind === 'PANEL' ? actor(editor.user) : { kind: 'STUDENT' as const, id: editor.accountId });
+
+async function assertCorrectable(p: Application | null, editor: Editor, db: Db = pool): Promise<Application> {
   if (p?.status !== 'SUBMITTED') throw AppError.conflict('Only a submitted form can be changed here.');
   if (!canEdit(p)) throw AppError.conflict(FINALLY_APPROVED);
+  const returned = await openReturn(db, p.id);
+  if (editor.kind === 'PANEL' && returned) throw AppError.conflict(WITH_CANDIDATE, 'WITH_CANDIDATE');
+  if (editor.kind === 'CANDIDATE' && !returned) throw AppError.conflict(NOT_RETURNED, 'NOT_RETURNED');
+  return p;
 }
 
-const recordEdit = (db: Db, applicationId: string, user: PanelUser, changes: EditChange[]) =>
+const recordEdit = (db: Db, applicationId: string, editor: Editor, changes: EditChange[]) =>
   db.query(`INSERT INTO application_edits (application_id, changes, panel_user_id, actor_name) VALUES ($1, $2, $3, $4)`, [
     applicationId,
     JSON.stringify(changes),
-    user.id,
-    user.name,
+    editor.kind === 'PANEL' ? editor.user.id : null,
+    editor.kind === 'PANEL' ? editor.user.name : `${editor.name} (candidate)`.slice(0, 150),
   ]);
 
 /* The longest name the sign-in account holds (student_accounts.first_name / last_name). */
@@ -106,12 +117,11 @@ async function textsOf(program: Program, form: Form, db: Db) {
  * and mobile number, so lists, search and calls match the form (one that is cleared leaves the account's). Nothing changed =
  * nothing recorded.
  */
-export async function editForm(req: Request, user: PanelUser, accountId: string, data: Form): Promise<void> {
+export async function editForm(req: Request, editor: Editor, accountId: string, data: Form): Promise<void> {
   try {
     await transaction(async (db) => {
       const account = await studentAccount(accountId, db);
-      const p = await lockedApplication(accountId, db);
-      assertCorrectable(p);
+      const p = await assertCorrectable(await lockedApplication(accountId, db), editor, db);
       const program = await loadProgram(db);
       const before: Form = { ...formOf(p, program), email: account.email, aadhaar_number: aadhaarOf(p) };
       const { changed, errors } = changedValues(program, p, before, data);
@@ -158,7 +168,7 @@ export async function editForm(req: Request, user: PanelUser, accountId: string,
       await recordEdit(
         db,
         p.id,
-        user,
+        editor,
         keys.map((key) => ({ key, label: program.label(key), from: from(key), to: to(key) })),
       );
       await enqueueApplications(db, 'UPDATE', [p.id]);
@@ -167,7 +177,7 @@ export async function editForm(req: Request, user: PanelUser, accountId: string,
         action: 'edp.application.edit',
         resource: 'student_account',
         resourceId: accountId,
-        actor: actor(user),
+        actor: auditActor(editor),
         details: { applicationId: p.id, fields: keys, stage: p.approval_stage },
       });
     });
@@ -222,14 +232,14 @@ const filesOf = (applicationId: string, db?: Db) =>
  */
 export async function uploadDocuments(
   req: Request,
-  user: PanelUser,
+  editor: Editor,
   accountId: string,
   files: Express.Multer.File[],
 ): Promise<void> {
   const account = await studentAccount(accountId);
   if (!files.length) throw AppError.validation([{ field: 'files', message: 'Choose a file to upload' }]);
-  const [program, found] = await Promise.all([loadProgram(), applicationOf(accountId)]);
-  assertCorrectable(found);
+  const [program, applied] = await Promise.all([loadProgram(), applicationOf(accountId)]);
+  const found = await assertCorrectable(applied, editor);
   const asked = program.documents();
   const others = (await filesOf(found.id))
     .flatMap((f) => program.document(f.document_code) ?? [])
@@ -255,8 +265,7 @@ export async function uploadDocuments(
       stored.push({ ...u, key, size: content.length, sha256: crypto.createHash('sha256').update(content).digest('hex') });
     }
     replaced = await transaction(async (db) => {
-      const p = await lockedApplication(accountId, db);
-      assertCorrectable(p);
+      const p = await assertCorrectable(await lockedApplication(accountId, db), editor, db);
       const before = new Map((await filesOf(p.id, db)).map((f) => [f.document_code, f]));
       for (const f of stored) {
         await db.query(
@@ -272,7 +281,7 @@ export async function uploadDocuments(
       await recordEdit(
         db,
         p.id,
-        user,
+        editor,
         stored.map((f) => ({
           key: f.code,
           label: program.documentName(f.code),
@@ -280,13 +289,13 @@ export async function uploadDocuments(
           to: f.name,
         })),
       );
-      await syncDocumentsVerified(db, p.id, user.id);
+      await syncDocumentsVerified(db, p.id, editor.kind === 'PANEL' ? editor.user.id : null);
       await enqueueApplications(db, 'UPDATE', [p.id]);
       await audit.inTx(db, req, {
         action: 'edp.application.documents',
         resource: 'student_account',
         resourceId: accountId,
-        actor: actor(user),
+        actor: auditActor(editor),
         details: {
           applicationId: p.id,
           documents: stored.map((f) => ({ document: f.code, size: f.size, sha256: f.sha256 })),

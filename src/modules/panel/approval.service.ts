@@ -15,6 +15,7 @@ import {
 import { enqueueApplications } from '../../program/link/outbox';
 import { kickLink } from '../../program/link/runtime';
 import { audit } from '../../services/audit';
+import { OPEN_RETURN, openReturn, WITH_CANDIDATE } from '../../program/returns';
 import { actor, applicationOf, FINALLY_APPROVED, lockedApplication, NO_FILE, studentAccount } from './common';
 
 /* The Auditor's approval of submitted forms, and the check of each of their documents. */
@@ -33,6 +34,7 @@ async function approveForms(
   const locked = await rows<{ id: string }>(
     `SELECT p.id FROM applications p JOIN student_accounts a ON a.id = p.account_id AND a.deleted_at IS NULL
      WHERE p.account_id = ANY($1::uuid[]) AND p.deleted_at IS NULL AND p.status = 'SUBMITTED' AND p.approval_stage IS NULL
+       AND NOT ${OPEN_RETURN('p')}
      ORDER BY p.id FOR UPDATE OF p`,
     [accountIds],
     db,
@@ -67,6 +69,8 @@ export async function approve(req: Request, user: PanelUser, accountId: string) 
     if (waiting[0]) throw AppError.conflict(notVerifiedMessage(waiting[0]));
     if (!approved.length) {
       const p = await applicationOf(accountId, db);
+      /* Sent back to the candidate (program/returns): with them until they resubmit it. */
+      if (p && (await openReturn(db, p.id))) throw AppError.conflict(WITH_CANDIDATE, 'WITH_CANDIDATE');
       throw AppError.conflict(p?.approval_stage ? 'This form is already approved.' : 'Only a submitted form can be approved.');
     }
     await audit.inTx(db, req, {

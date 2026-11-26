@@ -1,4 +1,5 @@
-import { one, rows } from '../../db/pool';
+import { one, pool, rows } from '../../db/pool';
+import { openReturn } from '../../program/returns';
 import type { PanelUser } from '../../http/auth';
 import { pageMeta } from '../../lib/paging';
 import { APPROVAL_COLUMNS, APPROVAL_JOINS, approvalDto, approvalHistory, type ApprovalRow } from '../../program/approval';
@@ -90,8 +91,10 @@ export async function listStudents(q: StudentListQuery, trash = false) {
         follow_up: r.follow_up_status
           ? followUpDto({ status: r.follow_up_status, note: r.follow_up_note, created_at: r.follow_up_at!, by: r.follow_up_by })
           : null,
-        /* Submitted, with the Auditor, every uploaded document verified. */
-        can_approve: r.status === 'SUBMITTED' && !r.approval_stage && allVerified(documents),
+        /* Submitted, with the Auditor (not sent back to the candidate), every uploaded document verified. */
+        can_approve: r.status === 'SUBMITTED' && !r.approval_stage && !r.returned_at && allVerified(documents),
+        /* Sent back to the candidate to correct, not resubmitted yet (program/returns). */
+        returned_at: r.returned_at,
         /* Approved and in no batch. */
         can_batch: r.approval_stage === 'BATCH' && !r.batch_id,
         approval: r.status === 'SUBMITTED' ? approvalDto(r) : null,
@@ -143,11 +146,12 @@ export async function student(accountId: string, user: PanelUser) {
   const form = formOf(p, program);
   const masked = aadhaarMasked(p);
   if (program.field('email')?.isActive) form.email ||= account.email;
-  const [names, files, check, rest] = await Promise.all([
+  const [names, files, check, rest, returned] = await Promise.all([
     referenceNames(program, form),
     p ? storedFiles(program, p.id) : [],
     p ? documentChecks(p.id) : () => ({ verified: false, at: null, by: null }),
     p ? approvalOf(p) : { documents_verified: { verified: false, at: null, by: null }, approval: null, history: [], edits: [] },
+    p ? openReturn(pool, p.id) : null,
   ]);
   return {
     account: {
@@ -174,7 +178,10 @@ export async function student(accountId: string, user: PanelUser) {
     view_fields: viewFields(program, form, names, masked),
     documents: documentList(program, files, check),
     ...rest,
-    can_edit: user.role === 'ADMIN' && canEdit(p),
+    /* Not while the form is with the candidate to correct (program/returns): they change it then. */
+    can_edit: user.role === 'ADMIN' && canEdit(p) && !returned,
     locked_fields: lockedFields(p),
+    /* Sent back to the candidate, not resubmitted yet: { reason, by, at, email_status, … } (GET …/returns lists them all). */
+    returned,
   };
 }

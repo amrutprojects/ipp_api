@@ -186,4 +186,88 @@ async function sendPasswordReset(to: string, name: string, link: string, minutes
   }
 }
 
-export const mailer = { sendPasswordReset };
+/*
+ * Subject, plain text and HTML of the e-mail to a candidate whose submitted form the Auditor sent back: the reason, and how to
+ * correct it — sign in with the same e-mail ID and password, correct the details and save; saving sends the form back to the
+ * Auditor by itself. The reason is the Auditor's own words: escaped, line breaks kept.
+ */
+function formReturnedEmail(name: string, reason: string, loginUrl: string, support: SupportValue) {
+  const href = escapeHtml(loginUrl);
+  const subject = `Please correct your application – ${PROGRAM_TITLE}`;
+  const text = [
+    `Dear ${name},`,
+    '',
+    `The Auditor has reviewed your ${PROGRAM_TITLE} application and sent it back to you for correction.`,
+    '',
+    'Reason:',
+    reason,
+    '',
+    'Please log in to the portal with your existing e-mail ID and password, correct the details mentioned above and save your form:',
+    '',
+    loginUrl,
+    '',
+    'Once you save it, your form is sent back to the Auditor automatically for review and approval.',
+    '',
+    PROGRAM_TITLE,
+    ORGANISATION,
+  ].join('\n');
+  const html = frame(
+    subject,
+    'The Auditor sent your application back for correction. Log in, correct the details and save.',
+    `      <tr><td style="padding:28px 24px 10px;font-size:15px;line-height:1.6">
+        <h1 style="margin:0 0 16px;font-family:${SERIF};font-size:22px;line-height:1.3;color:${P.text}">Please correct your application</h1>
+        <p style="margin:0 0 12px">Dear ${escapeHtml(name)},</p>
+        <p style="margin:0 0 16px">The Auditor has reviewed your <b>${PROGRAM_TITLE}</b> application and sent it back to you for correction.</p>
+        ${note(`<b>Reason:</b><br>${escapeHtml(reason).replace(/\r?\n/g, '<br>')}`)}
+        <p style="margin:0 0 20px">Please log in with your <b>existing e-mail ID and password</b>, correct the details mentioned above and save your form.</p>
+        <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 18px"><tr>
+          <td align="center" bgcolor="${P.maroon}" style="background:${P.maroon};border-radius:8px">
+            <!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:46px;v-text-anchor:middle;width:230px" arcsize="17%" stroke="f" fillcolor="${P.maroon}"><w:anchorlock/><center style="color:#ffffff;font-family:${SANS};font-size:15px;font-weight:bold">Log in and correct</center></v:roundrect><![endif]-->
+            <!--[if !mso]><!--><a href="${href}" target="_blank" rel="noopener" style="display:inline-block;padding:13px 32px;font-family:${SANS};font-size:15px;font-weight:bold;line-height:20px;color:#ffffff;text-decoration:none;border-radius:8px;border:1px solid ${P.maroon};background:${P.maroon}">Log in and correct</a><!--<![endif]-->
+          </td>
+        </tr></table>
+        <p style="margin:0 0 22px;text-align:center;font-size:13px;color:${P.muted}">Once you save it, your form goes back to the Auditor <b style="color:${P.maroon}">automatically</b> for review and approval.</p>
+      </td></tr>`,
+    support,
+  );
+  return { subject, text, html };
+}
+
+/* What became of an e-mail that must not undo what caused it. NOT_SENT = no mail server (development only, logged instead). */
+export type Delivery = 'SENT' | 'FAILED' | 'NOT_SENT';
+
+/*
+ * E-mails a candidate that the Auditor sent the form back, with the reason. Never throws: the form is already sent back, so
+ * a mail server that is missing or fails is only reported (FAILED), for the panel to show.
+ */
+async function sendFormReturned(to: string, name: string, reason: string): Promise<Delivery> {
+  const { host, port, secure, user, pass } = config.smtp;
+  const loginUrl = `${config.portalUrl}/login`;
+  if (!host) {
+    if (!env.isLocal) {
+      logger.error('form returned e-mail NOT sent: SMTP_HOST is not set');
+      return 'FAILED';
+    }
+    logger.warn({ loginUrl }, 'form returned e-mail NOT sent: SMTP_HOST is not set (development only, logged instead)');
+    return 'NOT_SENT';
+  }
+  try {
+    const support = await supportForStudents();
+    await nodemailer.createTransport({ host, port, secure, auth: user ? { user, pass } : undefined, ...TIMEOUTS }).sendMail({
+      from: env.SMTP_FROM ?? { name: SENDER_NAME, address: user ?? '' },
+      ...(support.email ? { replyTo: support.email } : {}),
+      to,
+      ...formReturnedEmail(name, reason, loginUrl, support),
+      headers: { 'X-Entity-Ref-ID': crypto.randomUUID() },
+      attachments: [{ filename: 'sumago-logo.png', path: LOGO.path, cid: LOGO.cid, contentDisposition: 'inline' }],
+    });
+    return 'SENT';
+  } catch (err) {
+    logger.error(failure(err), 'form returned e-mail could not be sent');
+    return 'FAILED';
+  }
+}
+
+export const mailer = { sendPasswordReset, sendFormReturned };
+/* For tests: the e-mail as it would be sent. */
+export const emails = { formReturnedEmail };

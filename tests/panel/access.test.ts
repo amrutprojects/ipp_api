@@ -17,6 +17,8 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['post', '/manage/applicants/:id/approve', 'admin'],
   ['post', '/manage/applicants/approve-selected', 'admin'],
   ['post', '/manage/applicants/:id/documents/:docType/verify', 'admin'],
+  ['post', '/manage/applicants/:id/return', 'admin'],
+  ['get', '/manage/applicants/:id/returns', 'panel'],
   ['get', '/manage/applicants/:id/documents/:docType/file', 'panel'],
   ['get', '/manage/applicants/:id/documents.zip', 'panel'],
   ['put', '/manage/applicants/:id/form', 'admin'],
@@ -35,6 +37,8 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['put', '/manage/settings/welcome', 'admin'],
   ['get', '/manage/settings/help', 'panel'],
   ['put', '/manage/settings/help', 'admin'],
+  ['get', '/manage/settings/rejection', 'panel'],
+  ['put', '/manage/settings/rejection', 'admin'],
   ['get', '/manage/link', 'panel'],
   ['post', '/manage/link/retry', 'admin'],
   ['post', '/manage/link/test', 'admin'],
@@ -58,10 +62,10 @@ beforeAll(async () => {
 afterAll(closeDatabase);
 
 describe('who may call the panel', () => {
-  it('has the 35 endpoints of the panel, each with its guard', () => {
+  it('has the 39 endpoints of the panel, each with its guard', () => {
     const sorted = (list: string[][]) => list.map((e) => e.join(' ')).sort();
     expect(sorted(declared().map((e) => [e.method, e.path, e.auth]))).toEqual(sorted(ENDPOINTS));
-    expect(ENDPOINTS).toHaveLength(35);
+    expect(ENDPOINTS).toHaveLength(39);
   });
 
   it.each(ENDPOINTS.filter(([, , auth]) => auth !== 'public'))('%s %s needs a panel session', async (method, path) => {
@@ -103,6 +107,8 @@ describe('who may call the panel', () => {
       '/manage/settings/support',
       '/manage/settings/welcome',
       '/manage/settings/help',
+      '/manage/settings/rejection',
+      `/manage/applicants/${student.id}/returns`,
       '/manage/link',
     ])
       expect([path, (await get(path, viewer.token)).status]).toEqual([path, 200]);

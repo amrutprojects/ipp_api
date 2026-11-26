@@ -105,3 +105,8 @@ export const helpBody = z
     if (v.enabled && !v.fields.some((f) => f.label && f.value))
       issue(ctx, ['fields'], 'Add at least one contact detail to show in the Help panel');
   });
+
+/* "Enable Rejection Email Notification and Resubmission": required, so a missing value never switches it by accident. */
+export const rejectionBody = z
+  .object({ enabled: z.boolean({ required_error: 'enabled is required', invalid_type_error: 'enabled must be true or false' }) })
+  .strict();

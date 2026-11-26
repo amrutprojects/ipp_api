@@ -131,8 +131,11 @@ export const STAGE_STATUS: Record<ApprovalStage, string> = {
   ADMIN: 'With Super Admin (final approval)',
   APPROVED: 'Final approved',
 };
-/* The "approval" filter: AWAITING = submitted, with the Auditor (RETURNED = of those, sent back); or a stage. */
-export const APPROVAL_FILTERS = ['AWAITING', 'RETURNED', ...APPROVAL_STAGES] as const;
+/*
+ * The "approval" filter: AWAITING = submitted, with the Auditor (RETURNED = of those, sent back by the Divisional Officer);
+ * WITH_CANDIDATE = sent back to the candidate to correct (program/returns), not with the Auditor until resubmitted; or a stage.
+ */
+export const APPROVAL_FILTERS = ['AWAITING', 'RETURNED', 'WITH_CANDIDATE', ...APPROVAL_STAGES] as const;
 export type ApprovalFilter = (typeof APPROVAL_FILTERS)[number];
 /* The "Stage of application" filter: how far the form got, then whom it is with. */
 export const APPLICATION_STAGES = {
@@ -142,6 +145,7 @@ export const APPLICATION_STAGES = {
   MAIN_DONE: 'Step 2 filled',
   AUDITOR: 'Submitted: with the Auditor',
   RETURNED: 'Sent back to the Auditor',
+  WITH_CANDIDATE: 'Sent back to the candidate',
   ...STAGE_STATUS,
 } as const;
 export type ApplicationStage = keyof typeof APPLICATION_STAGES;

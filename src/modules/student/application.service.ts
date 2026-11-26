@@ -6,6 +6,7 @@ import { CUSTOM_KEY_PREFIX, type Form, type Step } from '../../program/constants
 import { documentChecks, documentList, storedFiles } from '../../program/document-checks';
 import { checkForm, referenceNames, viewFields } from '../../program/form';
 import { loadProgram, type Program } from '../../program/masters';
+import { openReturn } from '../../program/returns';
 import { aadhaarDigits } from '../../program/rules';
 import { ensureApplication } from './accounts.service';
 import type { SaveStepBody } from './application.schemas';
@@ -24,9 +25,10 @@ export interface ApplicationRow {
   submitted_at: Date | null;
   registration_code: string | null;
   registration_number: string | null;
+  batch_id: string | null;
 }
 const SELECT = `SELECT id, status, current_step, data, aadhaar_enc, aadhaar_last4, basic_completed_at, main_completed_at,
-  submitted_at, registration_code, registration_number FROM applications WHERE account_id = $1`;
+  submitted_at, registration_code, registration_number, batch_id FROM applications WHERE account_id = $1`;
 
 /* The student's application, made on first use; `lock` keeps its row until the transaction ends. */
 async function load(accountId: string, db: Db = pool, lock = false): Promise<ApplicationRow> {
@@ -97,6 +99,8 @@ async function view(account: StudentAccount) {
       registration: null,
       view_fields: [],
       documents: [],
+      returned: null,
+      locked_fields: [],
     };
   }
   /* The Aadhaar is never shown in full again. */
@@ -104,6 +108,8 @@ async function view(account: StudentAccount) {
   const aadhaarMasked = maskAadhaar(p.aadhaar_last4);
   const check = await documentChecks(p.id);
   const names = await referenceNames(program, form);
+  /* Sent back by the Auditor (program/returns): the candidate corrects it and saves, which resubmits it. */
+  const open = await openReturn(pool, p.id);
   return {
     ...base,
     form,
@@ -119,6 +125,9 @@ async function view(account: StudentAccount) {
     view_fields: viewFields(program, form, names, aadhaarMasked),
     /* Whether each document is verified, without who verified it. */
     documents: documentList(program, files, (code) => ({ ...check(code), by: null })),
+    returned: open ? { reason: open.reason, at: open.at } : null,
+    /* What the candidate cannot change while correcting: the sign-in, and the district of a student in a batch. */
+    locked_fields: open ? ['email', ...(p.batch_id ? ['district_id'] : [])] : [],
   };
 }
 

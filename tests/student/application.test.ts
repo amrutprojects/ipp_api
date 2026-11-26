@@ -59,6 +59,8 @@ describe('GET /application', () => {
       registration: null,
       view_fields: [],
       documents: [],
+      returned: null,
+      locked_fields: [],
     });
     /* Every field, as text. */
     expect(Object.keys(form)).toHaveLength(36);

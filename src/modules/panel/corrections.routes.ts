@@ -4,7 +4,7 @@ import { ok } from '../../http/respond';
 import { uploadedFiles } from '../../http/upload';
 import { STUDENT_NOT_FOUND, studentParams } from './common';
 import { editFormBody } from './corrections.schemas';
-import { editForm, uploadDocuments } from './corrections.service';
+import { asPanel, editForm, uploadDocuments } from './corrections.service';
 import { student } from './students.service';
 
 export const correctionsApi = new Api('Panel: corrections');
@@ -22,7 +22,7 @@ api.put(
   },
   async ({ req, res, params, body }) => {
     const user = panelOf(res);
-    await editForm(req, user, params.id, body.data);
+    await editForm(req, asPanel(user), params.id, body.data);
     ok(res, await student(params.id, user), 'Form saved');
   },
 );
@@ -39,7 +39,7 @@ api.post(
   },
   async ({ req, res, params }) => {
     const user = panelOf(res);
-    await uploadDocuments(req, user, params.id, uploadedFiles(req));
+    await uploadDocuments(req, asPanel(user), params.id, uploadedFiles(req));
     ok(res, await student(params.id, user), 'Documents saved');
   },
 );

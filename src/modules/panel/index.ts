@@ -5,6 +5,7 @@ import { correctionsApi } from './corrections.routes';
 import { filesApi } from './files.routes';
 import { followUpsApi } from './follow-ups.routes';
 import { linkPanelApi } from './link.routes';
+import { returnsApi } from './returns.routes';
 import { settingsApi } from './settings.routes';
 import { studentsApi } from './students.routes';
 import { usersApi } from './users.routes';
@@ -14,6 +15,7 @@ export const panelApis: Api[] = [
   usersApi,
   studentsApi,
   approvalApi,
+  returnsApi,
   correctionsApi,
   filesApi,
   followUpsApi,

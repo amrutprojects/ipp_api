@@ -3,6 +3,7 @@ import { offset } from '../../lib/paging';
 import { APPROVAL_COLUMNS, APPROVAL_JOINS, type ApprovalRow } from '../../program/approval';
 import { STAGES, type ApprovalFilter, type FollowUpStatus, type Stage } from '../../program/constants';
 import { DOCUMENT_COUNTS } from '../../program/document-checks';
+import { OPEN_RETURN } from '../../program/returns';
 import { FILTER_COLUMNS, FILTER_JOINS, filterSql, type FilterRow } from '../../program/filters';
 import type { StudentListQuery } from './students.schemas';
 
@@ -19,8 +20,12 @@ const STAGE = `CASE
   WHEN p.basic_completed_at IS NOT NULL THEN 'BASIC_DONE'
   ELSE 'VERIFIED' END`;
 
-/* With the Auditor; of those, sent back by the Divisional Officer (the latest event is a rejection). */
-const AWAITING = `p.status = 'SUBMITTED' AND p.approval_stage IS NULL`;
+/*
+ * With the Auditor; of those, sent back by the Divisional Officer (the latest event is a rejection). A form the Auditor sent
+ * back to the candidate is with the candidate until resubmitted (WITH_CANDIDATE).
+ */
+const AWAITING = `p.status = 'SUBMITTED' AND p.approval_stage IS NULL AND NOT ${OPEN_RETURN('p')}`;
+const WITH_CANDIDATE = `p.status = 'SUBMITTED' AND p.approval_stage IS NULL AND ${OPEN_RETURN('p')}`;
 const SENT_BACK = `(SELECT e.action FROM approval_events e WHERE e.application_id = p.id ORDER BY e.seq DESC LIMIT 1) = 'REJECT'`;
 
 /* A follow-up status is the one of the latest follow-up. */
@@ -29,6 +34,7 @@ const FOLLOW_UP = `(SELECT f.status FROM follow_ups f WHERE f.account_id = a.id 
 function approvalSql(filter: ApprovalFilter, add: (v: unknown) => string): string {
   if (filter === 'AWAITING') return ` AND ${AWAITING}`;
   if (filter === 'RETURNED') return ` AND ${AWAITING} AND ${SENT_BACK}`;
+  if (filter === 'WITH_CANDIDATE') return ` AND ${WITH_CANDIDATE}`;
   return ` AND p.approval_stage = ${add(filter)}`;
 }
 
@@ -69,6 +75,8 @@ export interface StudentRow extends ApprovalRow, FilterRow {
   follow_up_note: string | null;
   follow_up_at: Date | null;
   follow_up_by: string | null;
+  /* Sent back to the candidate, not resubmitted yet (program/returns). */
+  returned_at: Date | null;
 }
 
 /*
@@ -93,7 +101,9 @@ export async function findStudents(q: StudentListQuery, trash = false): Promise<
               greatest(a.created_at, a.verified_at, a.last_login_at, p.student_active_at) AS last_activity_at,
               dc.uploaded, dc.verified,
               fu.status AS follow_up_status, fu.note AS follow_up_note, fu.created_at AS follow_up_at, fu.by AS follow_up_by,
-              ${FILTER_COLUMNS}, ${APPROVAL_COLUMNS}
+              ${FILTER_COLUMNS}, ${APPROVAL_COLUMNS},
+              (SELECT r.created_at FROM application_returns r WHERE r.application_id = p.id AND r.resubmitted_at IS NULL)
+                AS returned_at
        FROM page JOIN student_accounts a ON a.id = page.id ${APPLICATION}
        ${FILTER_JOINS}${APPROVAL_JOINS}${DOCUMENT_COUNTS}
        LEFT JOIN LATERAL (
@@ -121,7 +131,8 @@ export const countStudents = () =>
   rows<SummaryRow>(
     `SELECT ${STAGE} AS stage, coalesce(fu.status, 'NONE') AS follow_up,
             CASE WHEN p.status = 'SUBMITTED' THEN
-              coalesce(p.approval_stage, CASE WHEN ${SENT_BACK} THEN 'RETURNED' ELSE 'AWAITING' END) END AS approval,
+              coalesce(p.approval_stage, CASE WHEN ${OPEN_RETURN('p')} THEN 'WITH_CANDIDATE'
+                WHEN ${SENT_BACK} THEN 'RETURNED' ELSE 'AWAITING' END) END AS approval,
             count(*)::int AS n
      FROM ${PEOPLE}
      LEFT JOIN (SELECT DISTINCT ON (account_id) account_id, status FROM follow_ups ORDER BY account_id, seq DESC) fu
