@@ -4,6 +4,7 @@ import type { Readable } from 'node:stream';
 import { one, rows, transaction } from '../../db/pool';
 import type { StudentAccount } from '../../http/auth';
 import { AppError } from '../../http/errors';
+import { folderFor } from '../../program/folders';
 import { loadProgram } from '../../program/masters';
 import { checkUploads, discardFiles, discardUnusedFiles } from '../../program/uploads';
 import { storage } from '../../services/storage';
@@ -17,7 +18,13 @@ export const documentsService = {
    * the earlier file is there until the database holds the new one; only then it is deleted.
    */
   async upload(account: StudentAccount, files: Express.Multer.File[]) {
-    const { id } = await transaction((db) => lockDraft(db, account.id));
+    /* The student's folder, named as the form says now (else the account): "Asha Patil 9876501234". */
+    const { id, folder } = await transaction(async (db) => {
+      const p = await lockDraft(db, account.id);
+      const v = (k: string) => (typeof p.data[k] === 'string' ? p.data[k] : '');
+      const who = { first_name: v('first_name'), last_name: v('last_name'), mobile: v('mobile_number') };
+      return { id: p.id, folder: await folderFor(db, p.id, who, account) };
+    });
     if (!files.length) throw AppError.validation([{ field: 'files', message: 'Choose a file to upload' }]);
     const uploads = await checkUploads(files, (await loadProgram()).documents());
     const written: string[] = [];
@@ -26,7 +33,7 @@ export const documentsService = {
       const stored: { code: string; values: unknown[] }[] = [];
       for (const { code, path, type, name } of uploads) {
         const data = await fs.readFile(path);
-        const key = storage.draftKey(id, `${code}-${crypto.randomUUID()}.${type.ext}`);
+        const key = storage.studentKey(folder, `${code}-${crypto.randomUUID()}.${type.ext}`);
         /* Noted first: a file written only in part is deleted too. */
         written.push(key);
         await storage.write(key, data);

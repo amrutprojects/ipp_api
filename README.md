@@ -90,6 +90,12 @@ Back up the database **and** the two Aadhaar keys: without the keys the stored n
 Files in S3: `STORAGE_DRIVER=s3`, `AWS_REGION`, `AWS_BUCKET_NAME` (private bucket; block all public access). Without access keys the server's
 instance role is used; it needs `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on the bucket's objects and `s3:ListBucket` on the bucket.
 
+Each student's documents are in one folder of their own, named after them: `candidates/Asha Patil 9876501234/` (first name, last name,
+mobile number; `… (2)` for a second student of the same name and number). The draft's uploads, the submitted documents and the Auditor's
+replacements all go there, and they move when the Auditor corrects the name or the mobile number. Documents stored before 26 Nov 2026
+(`applications/<id>/…`, `candidates/IPP-000001_<name>/…`) keep working where they are; `npm run storage:organise` counts them and
+`npm run storage:organise -- --yes` (on the server: `storage:organise:prod`) moves them into the students' folders.
+
 ## Copying the earlier system's data
 
 Into an empty database (migrated and seeded, no students): put the `LEGACY_*` settings into `.env.legacy` (never committed):

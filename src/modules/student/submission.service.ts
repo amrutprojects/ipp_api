@@ -9,7 +9,8 @@ import { aadhaarBlindIndex } from '../../lib/aadhaar';
 import { checkForm } from '../../program/form';
 import { loadProgram } from '../../program/masters';
 import { aadhaarDigits } from '../../program/rules';
-import { candidateFolder, discardFiles, discardUnusedFiles } from '../../program/uploads';
+import { folderFor } from '../../program/folders';
+import { discardFiles, discardUnusedFiles } from '../../program/uploads';
 import { audit } from '../../services/audit';
 import { storage } from '../../services/storage';
 import { aadhaarTaken, DUPLICATE_AADHAAR, formOf, lockDraft, withAccount } from './application.service';
@@ -72,7 +73,13 @@ export async function submit(req: Request, account: StudentAccount) {
       }
 
       const { code } = (await one<{ code: string }>(`SELECT 'IPP-' || padded(nextval('registration_seq'), 6) AS code`, [], db))!;
-      const folder = candidateFolder(code, values.first_name || account.first_name, values.last_name || account.last_name);
+      /* The student's folder by the name and mobile number as submitted: "Asha Patil 9876501234". */
+      const folder = await folderFor(
+        db,
+        p.id,
+        { first_name: values.first_name, last_name: values.last_name, mobile: values.mobile_number },
+        account,
+      );
       for (const f of files) {
         const key = storage.candidateKey(folder, `${f.document_code}${path.extname(f.storage_key)}`);
         copies.push(key);

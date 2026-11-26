@@ -6,6 +6,7 @@ import { rows, transaction, type Db } from '../../db/pool';
 import type { PanelUser } from '../../http/auth';
 import { AppError, type FieldError } from '../../http/errors';
 import { aadhaarBlindIndex, encryptAadhaar, maskAadhaar } from '../../lib/aadhaar';
+import { logger } from '../../lib/logger';
 import { normaliseMobile } from '../../lib/text';
 import type { Form } from '../../program/constants';
 import { syncDocumentsVerified } from '../../program/document-checks';
@@ -14,6 +15,7 @@ import { enqueueApplications } from '../../program/link/outbox';
 import { kickLink } from '../../program/link/runtime';
 import { loadProgram, type Program } from '../../program/masters';
 import { aadhaarDigits } from '../../program/rules';
+import { folderFor, relocateFiles } from '../../program/folders';
 import { checkUploads, discardFiles, discardUnusedFiles, type CheckedUpload } from '../../program/uploads';
 import { audit } from '../../services/audit';
 import { storage } from '../../services/storage';
@@ -23,7 +25,6 @@ import {
   applicationOf,
   canEdit,
   FINALLY_APPROVED,
-  folderOf,
   formOf,
   lockedApplication,
   lockedFields,
@@ -171,6 +172,26 @@ export async function editForm(req: Request, user: PanelUser, accountId: string,
     throw err;
   }
   kickLink();
+  await followName(accountId);
+}
+
+/*
+ * After a correction of the name or the mobile number: the student's documents move to the folder of the new name. Nothing
+ * changes when the name is the same; a failure leaves the files where they are (still found by the database) and is logged.
+ */
+async function followName(accountId: string): Promise<void> {
+  try {
+    const account = await studentAccount(accountId);
+    const p = await applicationOf(accountId);
+    if (!p) return;
+    const v = (k: string) => (typeof p.data[k] === 'string' ? (p.data[k] as string) : '');
+    const folder = await transaction((db) =>
+      folderFor(db, p.id, { first_name: v('first_name'), last_name: v('last_name'), mobile: v('mobile_number') }, account),
+    );
+    if (folder) await relocateFiles(p.id);
+  } catch (err) {
+    logger.error({ err }, 'documents could not follow a corrected name');
+  }
 }
 
 /* ----------------------------------------------------------------------------------------------------------- documents */
@@ -207,7 +228,12 @@ export async function uploadDocuments(
     .flatMap((f) => program.document(f.document_code) ?? [])
     .filter((d) => !asked.includes(d));
   const uploads = await checkUploads(files, [...asked, ...others]);
-  const folder = folderOf(found, formOf(found, program), account);
+  /* The student's folder by the name and number as they are now; earlier files are moved into it first. */
+  const form = formOf(found, program);
+  const folder = await transaction((db) =>
+    folderFor(db, found.id, { first_name: form.first_name, last_name: form.last_name, mobile: form.mobile_number }, account),
+  );
+  await relocateFiles(found.id);
 
   const written: string[] = [];
   let replaced: string[];

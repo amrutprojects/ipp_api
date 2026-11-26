@@ -15,8 +15,11 @@ import { env, projectRoot } from '../config/env';
 
 /*
  * Private file storage of the students' documents: never served directly, only through the API.
- *   applications/<application id>/<CODE>.<ext>          while the form is a draft
- *   candidates/<registration ID>_<name>/<CODE>.<ext>    once it is submitted
+ *   candidates/<First Last Mobile>/<CODE>-<uuid>.<ext>   a draft's uploads (program/folders.ts names the folder)
+ *   candidates/<First Last Mobile>/<CODE>.<ext>          once the form is submitted
+ *   candidates/<First Last Mobile>/<time>-<random>-<CODE>.<ext>   a document the Auditor replaced
+ * Stored before 26 Nov 2026: applications/<application id>/… and candidates/<registration ID>_<name>/… (npm run storage:organise
+ * moves them).
  * STORAGE_DRIVER=local keeps files under STORAGE_DIR (every key is resolved and checked to stay inside it);
  * STORAGE_DRIVER=s3 keeps them in the private bucket AWS_BUCKET_NAME, under AWS_KEY_PREFIX, encrypted at rest (SSE-S3).
  */
@@ -28,6 +31,16 @@ export const safeSegment = (s: string) =>
     .replace(/[^A-Za-z0-9._-]/g, '_')
     .replace(/^\.+/, '_')
     .slice(0, 100) || '_';
+
+/*
+ * A student's folder as a part of a key: it is made by program/folders.ts (letters, digits, spaces and . ' - only), and checked
+ * again here, so no key ever leaves its folder.
+ */
+export function folderSegment(folder: string): string {
+  if (!folder || folder === '.' || folder === '..' || /[/\\]/.test(folder) || /\p{Cc}/u.test(folder) || folder.length > 160)
+    throw new Error('Invalid storage folder');
+  return folder;
+}
 
 export function resolveKey(key: string): string {
   const root = storageRoot();
@@ -66,6 +79,9 @@ const localDriver: StorageDriver = {
   read: async (key) => createReadStream(resolveKey(key)),
 };
 
+/* One part of a key in a URL (CopySource): every character but A–Z a–z 0–9 - _ . ~ encoded, also ' ( ) ! * of a name. */
+const uriPart = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+
 /* Keys are validated the same way as on disk (no "..", no absolute paths) before they reach the bucket. */
 function s3Key(key: string): string {
   const segs = key.split('/');
@@ -86,7 +102,7 @@ function s3Driver(): StorageDriver {
     client.send(
       new CopyObjectCommand({
         Bucket,
-        CopySource: `${Bucket}/${s3Key(fromKey).split('/').map(encodeURIComponent).join('/')}`,
+        CopySource: `${Bucket}/${s3Key(fromKey).split('/').map(uriPart).join('/')}`,
         Key: s3Key(toKey),
         ServerSideEncryption: 'AES256',
       }),
@@ -125,11 +141,13 @@ export const storage = {
   /* A draft's uploads, until the form is submitted. */
   draftKey: (applicationId: string, fileName: string) =>
     ['applications', safeSegment(applicationId), safeSegment(fileName)].join('/'),
-  /* A submitted candidate's documents: one folder per candidate, named with the registration ID and name. */
-  candidateKey: (folder: string, fileName: string) => ['candidates', safeSegment(folder), safeSegment(fileName)].join('/'),
+  /* A student's file, in the student's own folder. */
+  studentKey: (folder: string, fileName: string) => ['candidates', folderSegment(folder), safeSegment(fileName)].join('/'),
+  /* A submitted candidate's documents (the same folder). */
+  candidateKey: (folder: string, fileName: string) => ['candidates', folderSegment(folder), safeSegment(fileName)].join('/'),
   /* Unique per call: a replacement never overwrites the file it replaces before its database change commits. */
   versionedKey: (folder: string, fileName: string) =>
-    ['candidates', safeSegment(folder), `${Date.now()}-${randomBytes(4).toString('hex')}-${safeSegment(fileName)}`].join('/'),
+    ['candidates', folderSegment(folder), `${Date.now()}-${randomBytes(4).toString('hex')}-${safeSegment(fileName)}`].join('/'),
 
   write: (key: string, data: Buffer) => active().write(key, data),
   copy: (fromKey: string, toKey: string) => active().copy(fromKey, toKey),

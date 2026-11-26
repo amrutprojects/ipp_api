@@ -143,6 +143,13 @@ export const fileRows = (applicationId: string) =>
     sha256: string;
   }>(`SELECT * FROM application_files WHERE application_id = $1 ORDER BY document_code`, [applicationId]);
 export const isStored = (key: string) => fs.existsSync(path.join(storageRoot(), key));
+/* The student's own folder of documents, "candidates/Kavya Jadhav 9765412345" (null = nothing stored yet). */
+export const folderOf = async (applicationId: string) => {
+  const row = await one<{ storage_folder: string | null }>(`SELECT storage_folder FROM applications WHERE id = $1`, [
+    applicationId,
+  ]);
+  return row?.storage_folder ? `candidates/${row.storage_folder}` : null;
+};
 /* Every stored file under a folder of the storage. */
 export function storedIn(folder: string): string[] {
   const root = path.join(storageRoot(), folder);

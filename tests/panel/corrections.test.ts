@@ -408,7 +408,7 @@ describe('POST /manage/applicants/:id/documents', () => {
     /* Never over the old file, which is gone once the new one is saved. */
     const now = await fileRow(s.applicationId, 'PHOTO');
     expect(now.storage_key).not.toBe(old.storage_key);
-    expect(now.storage_key).toMatch(/^candidates\/IPP-\d{6}_Kavya_Jadhav\/[\w-]+-PHOTO\.pdf$/);
+    expect(now.storage_key).toMatch(/^candidates\/Kavya Jadhav \d{10}\/[\w-]+-PHOTO\.pdf$/);
     expect(await storage.exists(now.storage_key)).toBe(true);
     expect(await storage.exists(old.storage_key)).toBe(false);
 
@@ -530,8 +530,11 @@ describe('POST /manage/applicants/:id/documents', () => {
     const keys = failing.mock.calls.map(([key]) => key);
     expect(keys).toHaveLength(2);
     for (const key of keys) expect([key, await storage.exists(key)]).toEqual([key, false]);
-    expect(await fileRow(s.applicationId, 'PHOTO')).toMatchObject({ storage_key: old.storage_key });
-    expect(await storage.exists(old.storage_key)).toBe(true);
+    /* The old file is still the document (moved into the student's folder first, as it is). */
+    const kept = await fileRow(s.applicationId, 'PHOTO');
+    expect(kept).toMatchObject({ sha256: old.sha256, size_bytes: old.size_bytes });
+    expect(kept.storage_key).toMatch(/^candidates\/[^/]+ \d{10}\//);
+    expect(await storage.exists(kept.storage_key)).toBe(true);
     const d = await view(s.student.id);
     expect(d.documents_verified.verified).toBe(true);
     expect(d.edits).toEqual([]);

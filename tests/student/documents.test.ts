@@ -8,6 +8,7 @@ import {
   code,
   details,
   fileRows,
+  folderOf,
   isStored,
   newEmail,
   ready,
@@ -65,8 +66,11 @@ describe('POST /application/documents', () => {
     ]);
     const rows = await fileRows(s.id);
     expect(rows).toHaveLength(3);
+    /* The student's own folder: first name, last name, mobile number. */
+    const folder = (await folderOf(s.id))!;
+    expect(folder).toMatch(/^candidates\/Kavya Jadhav 9765412345( \(\d+\))?$/);
     for (const f of rows) {
-      expect(f.storage_key).toMatch(new RegExp(`^applications/${s.id}/${f.document_code}-[0-9a-f-]{36}\\.(jpg|png|mp4)$`));
+      expect(f.storage_key).toMatch(new RegExp(`^${folder}/${f.document_code}-[0-9a-f-]{36}\\.(jpg|png|mp4)$`));
       expect(isStored(f.storage_key)).toBe(true);
     }
     expect(rows.find((f) => f.document_code === 'PHOTO')!.sha256).toBe(
@@ -123,7 +127,7 @@ describe('POST /application/documents', () => {
       { field: 'files.DOMICILE', message: 'Domicile of Certificate Maharashtra: only PDF, JPG, JPEG or PNG files are accepted' },
     ]);
     expect(await fileRows(s.id)).toEqual([]);
-    expect(storedIn(`applications/${s.id}`)).toEqual([]);
+    expect(storedIn((await folderOf(s.id)) ?? 'candidates/none')).toEqual([]);
   });
 
   it('takes exactly 5 MB for a document and 50 MB for a video', async () => {
@@ -213,7 +217,7 @@ describe('POST /application/documents', () => {
     expect(res.status).toBe(500);
     expect(res.body.message).toBe('Something went wrong. Please try again.');
     expect(await fileRows(s.id)).toEqual(before);
-    expect(storedIn(`applications/${s.id}`)).toHaveLength(1);
+    expect(storedIn((await folderOf(s.id))!)).toHaveLength(1);
     expect((await body(s.token, 'SIGNATURE')).equals(FILES.png)).toBe(true);
   });
 
@@ -235,7 +239,7 @@ describe('POST /application/documents', () => {
     expect(results.map((r) => r.status)).toEqual([200, 200, 200]);
     const rows = await fileRows(s.id);
     expect(rows).toHaveLength(1);
-    expect(storedIn(`applications/${s.id}`)).toEqual([rows[0]!.storage_key.split('/').at(-1)]);
+    expect(storedIn((await folderOf(s.id))!)).toEqual([rows[0]!.storage_key.split('/').at(-1)]);
   });
 
   it('a form submitted while its file is being stored keeps what was submitted', async () => {
@@ -250,7 +254,8 @@ describe('POST /application/documents', () => {
     expect(res.status).toBe(409);
     expect(code(res)).toBe('ALREADY_SUBMITTED');
     expect((await body(r.token, 'PHOTO')).equals(FILES.pdf)).toBe(true);
-    expect(storedIn(`applications/${r.id}`)).toEqual([]);
+    /* Only what was submitted is left in the student's folder. */
+    expect(storedIn((await folderOf(r.id))!).every((f) => !f.includes('-'))).toBe(true);
   });
 
   it('is an activity of the student', async () => {

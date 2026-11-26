@@ -94,8 +94,8 @@ describe('POST /application/submit', () => {
     });
     expect(data).not.toHaveProperty('aadhaar_number');
 
-    /* One folder per candidate, letters, digits, '.', '_' and '-' only; nothing is left of the draft's files. */
-    const folder = `candidates/${registration_id}_Kavya_R._D_Souza`;
+    /* One folder per candidate, named after the first name, last name and mobile number; nothing is left of the draft's files. */
+    const folder = `candidates/Kavya R. D'Souza ${data.mobile_number}`;
     const files = await fileRows(r.id);
     expect(files).toHaveLength(9);
     for (const f of files) {

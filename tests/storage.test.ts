@@ -37,6 +37,21 @@ beforeAll(async () => {
 const last = () => sent[sent.length - 1]!;
 
 describe('S3 storage', () => {
+  it("copies within a student's folder named after them, the source fully encoded", async () => {
+    await storage.copy("candidates/Ravi D'Souza 9876543210/PHOTO-1.pdf", "candidates/Ravi D'Souza 9876543210/PHOTO.pdf");
+    expect(last()).toMatchObject({
+      command: 'copy',
+      input: {
+        CopySource: 'test-bucket/program/candidates/Ravi%20D%27Souza%209876543210/PHOTO-1.pdf',
+        Key: "program/candidates/Ravi D'Souza 9876543210/PHOTO.pdf",
+      },
+    });
+    await storage.write(storage.studentKey('आशा जोशी 9876543210', 'PHOTO.pdf'), Buffer.from('x'));
+    expect(last().input.Key).toBe('program/candidates/आशा जोशी 9876543210/PHOTO.pdf');
+    expect(() => storage.studentKey('../x', 'PHOTO.pdf')).toThrow('Invalid storage folder');
+    expect(() => storage.studentKey('..', 'PHOTO.pdf')).toThrow('Invalid storage folder');
+  });
+
   it('writes encrypted, under the prefix', async () => {
     await storage.write('candidates/IPP-000001_A/PHOTO.png', Buffer.from('x'));
     expect(last()).toMatchObject({

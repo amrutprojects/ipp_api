@@ -22,6 +22,8 @@
     "db:seed:prod": "node dist/db/cli.js seed",
     "import:legacy": "tsx src/import/cli.ts",
     "import:legacy:prod": "node dist/import/cli.js",
+    "storage:organise": "tsx src/program/organise-cli.ts",
+    "storage:organise:prod": "node dist/program/organise-cli.js",
     "panel:admin": "tsx scripts/create-panel-admin.ts",
     "test": "vitest run",
     "test:watch": "vitest"
