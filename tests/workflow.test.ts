@@ -175,7 +175,7 @@ describe('the program from start to end', () => {
       approvals: { AWAITING: 2 },
     });
     for (const s of students.slice(0, 2)) {
-      const early = await request('post', `/manage/applicants/${s.id}/approve`, admin.token);
+      const early = await request('post', `/manage/applicants/${s.id}/approve`, admin.token).send({ reason: 'Every document checked' });
       ok(early, 409);
       expect(early.body.message).toMatch(/^Verify every document first \(0 of 10 verified\)/);
       const { documents } = (await request('get', `/manage/applicants/${s.id}`, admin.token)).body.data;
@@ -187,6 +187,7 @@ describe('the program from start to end', () => {
     }
     const approved = await request('post', '/manage/applicants/approve-selected', admin.token).send({
       ids: students.map((s) => s.id),
+      reason: 'Every document checked',
     });
     expect(approved.body.data).toEqual({ approved: 2, skipped: 1 });
   });
@@ -277,7 +278,7 @@ describe('the program from start to end', () => {
       stages: { AUDITOR: 1, DIVISION: 1 },
       rejected: 1,
     });
-    ok(await request('post', `/manage/applicants/${s.id}/approve`, admin.token));
+    ok(await request('post', `/manage/applicants/${s.id}/approve`, admin.token).send({ reason: 'Corrected and checked again' }));
     const history = (await request('get', `/manage/applicants/${s.id}`, admin.token)).body.data.history;
     expect(history.map((h: { from: { stage: string }; to: { stage: string } }) => `${h.from.stage}>${h.to.stage}`)).toEqual([
       'AUDITOR>DIVISION',

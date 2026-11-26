@@ -87,7 +87,8 @@ async function decide(req: Request, d: Decision): Promise<DecisionResult> {
         action: d.action,
         from: here(d.from),
         to,
-        reason: d.action === 'REJECT' ? d.reason : null,
+        /* Why the officer approved or rejected; a change of hands (MOVE) has none. */
+        reason: d.action === 'MOVE' ? null : d.reason,
         by: d.by,
         at: new Date(d.at),
       });

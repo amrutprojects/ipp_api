@@ -47,6 +47,8 @@ export interface LinkApplication {
   submitted_at: Date;
   auditor_approved_at: Date | null;
   auditor_approved_by: string | null;
+  /* Why the Auditor approved it (the latest approval); null for one approved before reasons were asked. */
+  auditor_approval_reason: string | null;
   fields: { key: string; step: Step; label_en: string; label_mr: string; type: FieldType; text: string }[];
   documents: {
     code: string;
@@ -121,6 +123,7 @@ interface ApplicationData {
   submitted_at: Date;
   approved_at: Date | null;
   approved_by: string | null;
+  approval_reason: string | null;
   full_name: string;
   email: string;
   mobile: string;
@@ -168,6 +171,7 @@ async function applicationOf(
     submitted_at: p.submitted_at,
     auditor_approved_at: p.approved_at,
     auditor_approved_by: p.approved_by,
+    auditor_approval_reason: p.approved_at ? p.approval_reason : null,
     fields: viewFields(program, form, names, masked)
       .filter((f) => applies(f.key, (key) => form[key] ?? ''))
       .map(({ key, step, label_en, label_mr, type, text }) => ({
@@ -207,7 +211,10 @@ async function applicationsOf(db: Db, m: OutboxRow): Promise<LinkApplication[]> 
   const which = m.kind === 'BATCH' ? `p.batch_id = $1 AND p.approval_stage = 'DIVISION'` : `p.id = $1`;
   const list = await rows<ApplicationData>(
     `SELECT p.id, p.data, p.aadhaar_last4, p.registration_code, p.registration_number, p.submitted_at, p.approved_at,
-            u.name AS approved_by, a.full_name, a.email, a.mobile
+            u.name AS approved_by, a.full_name, a.email, a.mobile,
+            (SELECT e.reason FROM approval_events e
+             WHERE e.application_id = p.id AND e.action = 'APPROVE' AND e.from_stage = 'AUDITOR'
+             ORDER BY e.seq DESC LIMIT 1) AS approval_reason
      FROM applications p JOIN student_accounts a ON a.id = p.account_id LEFT JOIN panel_users u ON u.id = p.approved_by
      WHERE ${which} AND p.status = 'SUBMITTED' AND p.deleted_at IS NULL AND a.deleted_at IS NULL ORDER BY p.registration_code`,
     [m.kind === 'BATCH' ? m.batch_id : m.application_id],

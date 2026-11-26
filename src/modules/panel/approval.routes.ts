@@ -1,7 +1,7 @@
 import { Api } from '../../http/api';
 import { panelOf } from '../../http/auth';
 import { ok } from '../../http/respond';
-import { approveSelectedBody, verifyDocumentBody } from './approval.schemas';
+import { approveBody, approveSelectedBody, verifyDocumentBody } from './approval.schemas';
 import { approve, approveSelected, verifyDocument } from './approval.service';
 import { documentParams, STUDENT_NOT_FOUND, studentParams } from './common';
 
@@ -12,12 +12,13 @@ api.post(
   '/manage/applicants/approve-selected',
   {
     auth: 'admin',
-    summary: 'Approves the selected forms; one that cannot be approved is skipped',
+    summary:
+      'Approves the selected forms; one reason (3–500 characters) for all, required when any was rejected before (422); one that cannot be approved is skipped',
     returns: '{ approved, skipped }',
     body: approveSelectedBody,
   },
   async ({ req, res, body }) => {
-    const result = await approveSelected(req, panelOf(res), body.ids);
+    const result = await approveSelected(req, panelOf(res), body.ids, body.reason ?? null);
     ok(
       res,
       result,
@@ -30,12 +31,14 @@ api.post(
   '/manage/applicants/:id/approve',
   {
     auth: 'admin',
-    summary: 'Approves one submitted form whose uploaded documents are all verified (409 says why not)',
+    summary:
+      'Approves one submitted form whose uploaded documents are all verified (409 says why not); a reason (3–500 characters) is required for a second approval, after a rejection or a return to the candidate (422)',
     returns: '{ approved: 1 }',
     params: studentParams,
     notFound: STUDENT_NOT_FOUND,
+    body: approveBody,
   },
-  async ({ req, res, params }) => ok(res, await approve(req, panelOf(res), params.id), 'Form approved'),
+  async ({ req, res, params, body }) => ok(res, await approve(req, panelOf(res), params.id, body.reason ?? null), 'Form approved'),
 );
 
 api.post(

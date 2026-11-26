@@ -226,7 +226,8 @@ export async function makeApplication(
           : [app.id, action, from, to, reason, 'PANEL', by.id, by.name],
       );
     if (state !== 'VERIFIED_DOCS') {
-      await move('APPROVE', 'AUDITOR', 'BATCH');
+      /* As the Auditor approves now: with a reason. */
+      await move('APPROVE', 'AUDITOR', 'BATCH', 'Every document checked');
       const inBatch = state !== 'BATCH';
       if (inBatch) await move('APPROVE', 'BATCH', 'DIVISION');
       if (state === 'RETURNED') await move('REJECT', 'DIVISION', 'AUDITOR', 'Photo is not clear');

@@ -64,7 +64,7 @@ async function toBatch(accountId: string, centre: string) {
     expect((await panel('post', `/applicants/${accountId}/documents/${f.document_code}/verify`, { verified: true })).status).toBe(
       200,
     );
-  expect((await panel('post', `/applicants/${accountId}/approve`, {})).status).toBe(200);
+  expect((await panel('post', `/applicants/${accountId}/approve`, { reason: 'Every document checked' })).status).toBe(200);
   expect((await panel('put', '/settings/batch', { size: 1 })).status).toBe(200);
   const res = await panel('post', '/batches', { name: `Batch ${accountId.slice(0, 8)}`, centre_id: centre, ids: [accountId] });
   expect([res.status, res.body.message]).toEqual([201, expect.any(String)]);

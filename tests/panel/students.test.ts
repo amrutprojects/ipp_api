@@ -210,6 +210,7 @@ describe('counts, filters and the list', () => {
         last_event: null,
         register_id: null,
         batch: null,
+        reason_required: false,
       },
     });
     expect(row.registration_id).toMatch(/^IPP-\d{6}$/);
@@ -254,7 +255,8 @@ describe('counts, filters and the list', () => {
           action: 'APPROVE',
           from: { stage: 'AUDITOR', name: 'Auditor' },
           to: { stage: 'BATCH', name: 'Batch' },
-          reason: null,
+          /* The Auditor's approval reason. */
+          reason: 'Every document checked',
           by: 'Program Auditor',
           at: expect.any(String),
         },

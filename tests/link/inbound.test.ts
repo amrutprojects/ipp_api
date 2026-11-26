@@ -220,6 +220,21 @@ describe('POST /link/decisions', () => {
     expect(detail.history[1]).toMatchObject({ action: 'MOVE' });
   });
 
+  it("an officer's approval keeps its reason in the history; one without a reason (an older Sarthi) is still done", async () => {
+    const { applicationId: id, student } = await inBatch();
+    await results(
+      decision(id, 'APPROVE', 'DIVISION', 'COEP', { reason: ' Documents match the originals ' }),
+      decision(id, 'APPROVE', 'COEP', 'HEAD_OFFICE'),
+    );
+    expect(await stageOf(id)).toBe('HEAD_OFFICE');
+    expect((await events(id)).slice(-2)).toEqual([
+      expect.objectContaining({ action: 'APPROVE', from_stage: 'DIVISION', reason: 'Documents match the originals' }),
+      expect.objectContaining({ action: 'APPROVE', from_stage: 'COEP', reason: null }),
+    ]);
+    const detail = (await request('get', `/manage/applicants/${student.id}`, admin.token)).body.data;
+    expect(detail.history[1]).toMatchObject({ action: 'APPROVE', reason: 'Documents match the originals', role: 'Divisional Officer' });
+  });
+
   it('a rejection goes back one stage, with its reason; from the Divisional Officer to the Auditor, who approves again', async () => {
     const { applicationId: id, student } = await inBatch();
     const { student: other, applicationId: otherId } = await inBatch();
@@ -253,7 +268,7 @@ describe('POST /link/decisions', () => {
       stages: { AUDITOR: 1, COEP: 1 },
       rejected: 1,
     });
-    expect((await request('post', `/manage/applicants/${student.id}/approve`, admin.token)).status).toBe(200);
+    expect((await request('post', `/manage/applicants/${student.id}/approve`, admin.token).send({ reason: 'Corrected and checked again' })).status).toBe(200);
     expect(await stageOf(id)).toBe('DIVISION');
   });
 

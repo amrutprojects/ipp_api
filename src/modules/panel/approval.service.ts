@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import { rows, transaction } from '../../db/pool';
 import type { PanelUser } from '../../http/auth';
 import { AppError } from '../../http/errors';
-import { recordMove } from '../../program/approval';
+import { DECIDED_BY_AUDITOR, recordMove } from '../../program/approval';
 import {
   allVerified,
   DOCUMENT_COUNTS,
@@ -23,12 +23,14 @@ import { actor, applicationOf, FINALLY_APPROVED, lockedApplication, NO_FILE, stu
 /*
  * Approves the submitted forms that are with the Auditor, once every uploaded document is verified: a form then waits for a
  * batch, or, sent back by the Divisional Officer and still in its batch, goes straight to the Divisional Officer again.
- * `waiting` = forms with a document still to verify (or none at all), not approved.
+ * `reason` = why, kept in the history of each form approved; required (422) when one of them is approved a second time
+ * (DECIDED_BY_AUDITOR). `waiting` = forms with a document still to verify (or none at all), not approved.
  */
 async function approveForms(
   db: PoolClient,
   user: PanelUser,
   accountIds: string[],
+  reason: string | null,
 ): Promise<{ approved: string[]; waiting: DocumentCounts[] }> {
   /* Locked first, then counted: a document being replaced or checked meanwhile is counted as it ends up. */
   const locked = await rows<{ id: string }>(
@@ -44,14 +46,33 @@ async function approveForms(
     [locked.map((r) => r.id)],
     db,
   );
+  const ready = counted.filter(allVerified).map((r) => r.id);
+  if (!reason && ready.length) {
+    const again = await rows<{ id: string }>(
+      `SELECT p.id FROM applications p WHERE p.id = ANY($1::uuid[]) AND ${DECIDED_BY_AUDITOR('p')}`,
+      [ready],
+      db,
+    );
+    if (again.length)
+      throw AppError.validation([
+        {
+          field: 'body.reason',
+          message:
+            accountIds.length === 1
+              ? 'Approval reason is required: the form was rejected before, so this is its second approval.'
+              : `Approval reason is required: ${again.length} of the selected forms were rejected before, so this is their second approval.`,
+        },
+      ]);
+  }
   const moved = await rows<{ id: string; stage: 'BATCH' | 'DIVISION' }>(
     `UPDATE applications SET approved_at = now(), approved_by = $1, stage_updated_at = now(),
        approval_stage = CASE WHEN batch_id IS NULL THEN 'BATCH' ELSE 'DIVISION' END
      WHERE id = ANY($2::uuid[]) RETURNING id, approval_stage AS stage`,
-    [user.id, counted.filter(allVerified).map((r) => r.id)],
+    [user.id, ready],
     db,
   );
-  for (const p of moved) await recordMove(db, { applicationId: p.id, action: 'APPROVE', from: 'AUDITOR', to: p.stage, by: user });
+  for (const p of moved)
+    await recordMove(db, { applicationId: p.id, action: 'APPROVE', from: 'AUDITOR', to: p.stage, reason, by: user });
   /* Sent back before, and now with the Divisional Officer again. */
   await enqueueApplications(
     db,
@@ -61,11 +82,11 @@ async function approveForms(
   return { approved: moved.map((r) => r.id), waiting: counted.filter((r) => !allVerified(r)) };
 }
 
-/* One form; says why it cannot be approved (409). */
-export async function approve(req: Request, user: PanelUser, accountId: string) {
+/* One form, with the reason for approving it (required for a second approval); says why it cannot be approved (409). */
+export async function approve(req: Request, user: PanelUser, accountId: string, reason: string | null) {
   const result = await transaction(async (db) => {
     await studentAccount(accountId, db);
-    const { approved, waiting } = await approveForms(db, user, [accountId]);
+    const { approved, waiting } = await approveForms(db, user, [accountId], reason);
     if (waiting[0]) throw AppError.conflict(notVerifiedMessage(waiting[0]));
     if (!approved.length) {
       const p = await applicationOf(accountId, db);
@@ -87,12 +108,12 @@ export async function approve(req: Request, user: PanelUser, accountId: string) 
 }
 
 /*
- * The selected forms. One that cannot be approved (not submitted, a document still to verify, already approved, unknown) is
- * skipped.
+ * The selected forms, each with the same reason. One that cannot be approved (not submitted, a document still to verify,
+ * already approved, unknown) is skipped.
  */
-export async function approveSelected(req: Request, user: PanelUser, accountIds: string[]) {
+export async function approveSelected(req: Request, user: PanelUser, accountIds: string[], reason: string | null) {
   const result = await transaction(async (db) => {
-    const { approved } = await approveForms(db, user, accountIds);
+    const { approved } = await approveForms(db, user, accountIds, reason);
     if (approved.length)
       await audit.inTx(db, req, {
         action: 'edp.application.approve_selected',

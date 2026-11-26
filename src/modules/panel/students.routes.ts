@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import { Api } from '../../http/api';
 import { one, transaction } from '../../db/pool';
 import { AppError } from '../../http/errors';
@@ -54,7 +55,7 @@ api.get(
   },
 );
 
-async function setTrashed(id: string, trash: boolean, req: import('express').Request, userId: string) {
+async function setTrashed(id: string, trash: boolean, req: Request, userId: string) {
   await transaction(async (db) => {
     const row = await one<{ id: string }>(
       `UPDATE student_accounts SET manage_deleted_at = ${trash ? 'now()' : 'NULL'}

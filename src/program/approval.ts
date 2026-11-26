@@ -2,6 +2,16 @@ import { pool, rows, type Db } from '../db/pool';
 import { STAGE_NAME, STAGE_STATUS, type ApprovalStage, type MoveAction, type StagePoint } from './constants';
 
 /*
+ * The Auditor decided this form before: approved it and it was rejected back to the Auditor, or sent it back to the
+ * candidate to correct (program/returns). The Auditor's next approval of it is then a second approval, which needs a reason
+ * (a first approval does not). Over applications `alias`.
+ */
+export const DECIDED_BY_AUDITOR = (alias = 'p') =>
+  `(EXISTS (SELECT 1 FROM approval_events de WHERE de.application_id = ${alias}.id
+      AND ((de.action = 'APPROVE' AND de.from_stage = 'AUDITOR') OR (de.action = 'REJECT' AND de.to_stage = 'AUDITOR')))
+    OR EXISTS (SELECT 1 FROM application_returns dr WHERE dr.application_id = ${alias}.id))`;
+
+/*
  * A submitted form's approval as the lists show it: its stage, the Auditor's approval, the latest event (who moved it where,
  * and a rejection's reason) and its batch. Over applications `p`.
  */
@@ -16,7 +26,8 @@ export const APPROVAL_JOINS = `
 
 export const APPROVAL_COLUMNS = `p.approval_stage, p.stage_updated_at, p.approved_at, apv.name AS approved_by_name,
   ev.action AS last_action, ev.from_stage AS last_from, ev.to_stage AS last_to, ev.reason AS last_reason,
-  ev.created_at AS last_at, ev.by_name AS last_by, bt.id AS batch_id, bt.name AS batch_name, p.registration_code AS approval_code`;
+  ev.created_at AS last_at, ev.by_name AS last_by, bt.id AS batch_id, bt.name AS batch_name, p.registration_code AS approval_code,
+  ${DECIDED_BY_AUDITOR('p')} AS decided_before`;
 
 export interface ApprovalRow {
   approval_stage: ApprovalStage | null;
@@ -32,6 +43,7 @@ export interface ApprovalRow {
   batch_id: string | null;
   batch_name: string | null;
   approval_code: string | null;
+  decided_before: boolean;
 }
 
 const point = (s: StagePoint) => ({ stage: s, name: STAGE_NAME[s] });
@@ -57,6 +69,8 @@ export const approvalDto = (r: ApprovalRow) => ({
     : null,
   /* Finally approved: the registration ID is the student's record. */
   register_id: r.approval_stage === 'APPROVED' ? r.approval_code : null,
+  /* With the Auditor after a rejection or a return to the candidate: approving it again needs a reason. */
+  reason_required: r.approval_stage === null && r.decided_before,
   batch: r.batch_id ? { id: r.batch_id, name: r.batch_name } : null,
 });
 

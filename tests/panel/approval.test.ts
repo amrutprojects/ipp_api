@@ -23,9 +23,11 @@ beforeEach(async () => {
 });
 afterAll(closeDatabase);
 
-const approve = (id: string, token = admin.token) => post(`/manage/applicants/${id}/approve`, token);
-const approveSelected = (ids: unknown, token = admin.token) =>
-  post('/manage/applicants/approve-selected', token, { ids } as object);
+const REASON = 'Every document checked against the originals';
+const approve = (id: string, token = admin.token, reason: unknown = REASON) =>
+  post(`/manage/applicants/${id}/approve`, token, { reason } as object);
+const approveSelected = (ids: unknown, token = admin.token, reason: unknown = REASON) =>
+  post('/manage/applicants/approve-selected', token, { ids, reason } as object);
 const verify = (id: string, code: string, verified: unknown = true, token = admin.token) =>
   post(`/manage/applicants/${id}/documents/${code}/verify`, token, { verified } as object);
 const listed = async (id: string) =>
@@ -193,12 +195,71 @@ describe('the approval of one form', () => {
         action: 'APPROVE',
         from: { stage: 'AUDITOR', name: 'Auditor' },
         to: { stage: 'BATCH', name: 'Batch' },
-        reason: null,
+        reason: REASON,
         by: 'Program Auditor',
         role: null,
         at: expect.any(String),
       },
     ]);
+  });
+
+  it('a first approval needs no reason; one given must be 3 to 500 characters, kept trimmed in the history', async () => {
+    const s = await makeApplication('VERIFIED_DOCS', { centre, by: admin });
+    const id = s.student.id;
+    expect((await listed(id)).approval).toMatchObject({ stage: null, reason_required: false });
+    const refused = async (reason: unknown) => {
+      const res = await approve(id, admin.token, reason);
+      expect(res.status).toBe(422);
+      return detailsOf(res);
+    };
+    expect(await refused('  ok  ')).toEqual([{ field: 'body.reason', message: 'Approval reason must be at least 3 characters' }]);
+    expect(await refused('x'.repeat(501))).toEqual([{ field: 'body.reason', message: 'Approval reason must be at most 500 characters' }]);
+    expect(await refused(42)).toEqual([{ field: 'body.reason', message: 'Approval reason must be text' }]);
+    expect(await refused('bad\u0000text')).toEqual([{ field: 'body.reason', message: 'Approval reason contains characters that cannot be saved' }]);
+    /* Nothing was approved by a refused call. */
+    expect(await eventsOf(id)).toEqual([]);
+
+    expect((await post(`/manage/applicants/${id}/approve`, admin.token, {})).status).toBe(200);
+    const [event] = (await get(`/manage/applicants/${id}`, admin.token)).body.data.history;
+    expect(event).toMatchObject({ action: 'APPROVE', reason: null });
+
+    const other = await makeApplication('VERIFIED_DOCS', { centre, by: admin });
+    expect((await approve(other.student.id, admin.token, `  ${'y'.repeat(500)}  `)).status).toBe(200);
+    const [kept] = (await get(`/manage/applicants/${other.student.id}`, admin.token)).body.data.history;
+    expect(kept).toMatchObject({ action: 'APPROVE', reason: 'y'.repeat(500) });
+  });
+
+  it('a second approval, after a rejection by the Divisional Officer, needs the reason', async () => {
+    const batch = await makeBatch({ centre, by: admin, size: 30 });
+    const s = await makeApplication('RETURNED', { centre, by: admin, batch });
+    const id = s.student.id;
+    expect((await listed(id)).approval).toMatchObject({ stage: null, reason_required: true });
+    for (const body of [{}, { reason: undefined }]) {
+      const res = await post(`/manage/applicants/${id}/approve`, admin.token, body);
+      expect([res.status, detailsOf(res)]).toEqual([
+        422,
+        [{ field: 'body.reason', message: 'Approval reason is required: the form was rejected before, so this is its second approval.' }],
+      ]);
+    }
+    expect((await applicationRow(id)).approval_stage).toBe(null);
+    expect((await approve(id, admin.token, 'Photo replaced and verified')).status).toBe(200);
+    const [latest] = (await get(`/manage/applicants/${id}`, admin.token)).body.data.history;
+    expect(latest).toMatchObject({ action: 'APPROVE', from: { stage: 'AUDITOR' }, reason: 'Photo replaced and verified' });
+  });
+
+  it('a second approval, after a return to the candidate, needs the reason', async () => {
+    const s = await makeApplication('VERIFIED_DOCS', { centre, by: admin });
+    /* Returned to the candidate and resubmitted (program/returns). */
+    await pool.query(
+      `INSERT INTO application_returns (application_id, reason, panel_user_id, actor_name, email_status, resubmitted_at)
+       VALUES ($1, 'Marks card is not clear', $2, $3, 'SENT', now())`,
+      [s.applicationId, admin.id, admin.name],
+    );
+    expect((await listed(s.student.id)).approval).toMatchObject({ reason_required: true });
+    expect(detailsOf(await post(`/manage/applicants/${s.student.id}/approve`, admin.token, {}))).toEqual([
+      { field: 'body.reason', message: 'Approval reason is required: the form was rejected before, so this is its second approval.' },
+    ]);
+    expect((await approve(s.student.id, admin.token, 'Clear marks card uploaded')).status).toBe(200);
   });
 
   it('sends one that was sent back straight to the Divisional Officer again, in the same batch', async () => {
@@ -303,6 +364,13 @@ describe('the approval of the selected forms', () => {
     expect(await eventsOf(done.student.id)).toHaveLength(1);
     const [event] = await audits('edp.application.approve_selected');
     expect(event).toMatchObject({ resource: 'application', actor_id: admin.id, details: { count: 3, selected: 7 } });
+    /* The reason is free text: kept in the history, not in the audit. */
+    expect(JSON.stringify(await audits('edp.application.approve_selected'))).not.toContain(REASON);
+    /* Each form approved keeps the one reason in its own history. */
+    for (const x of [a, b, back]) {
+      const [latest] = (await get(`/manage/applicants/${x.student.id}`, admin.token)).body.data.history;
+      expect(latest).toMatchObject({ action: 'APPROVE', from: { stage: 'AUDITOR' }, reason: REASON, by: 'Program Auditor' });
+    }
 
     const again = await approveSelected([a.student.id]);
     expect(again.body).toMatchObject({
@@ -321,9 +389,33 @@ describe('the approval of the selected forms', () => {
       { field: 'body.ids', message: 'Each student may be selected only once' },
     ]);
     expect(detailsOf(await approveSelected(['abc']))).toEqual([{ field: 'body.ids.0', message: 'Student is not valid' }]);
+    /* No reason: none of them is a second approval (unknown here: skipped). */
+    expect((await post('/manage/applicants/approve-selected', admin.token, { ids: [id] })).body.data).toEqual({ approved: 0, skipped: 1 });
+    expect(detailsOf(await approveSelected([id], admin.token, 'no'))).toEqual([
+      { field: 'body.reason', message: 'Approval reason must be at least 3 characters' },
+    ]);
     const many = Array.from({ length: 501 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
     expect(detailsOf(await approveSelected(many))).toEqual([{ field: 'body.ids', message: 'At most 500 students at a time' }]);
     expect((await approveSelected(many.slice(0, 500))).body.data).toEqual({ approved: 0, skipped: 500 });
+  });
+
+  it('asks the reason when any selected form is approved a second time, and approves none without it', async () => {
+    const batch = await makeBatch({ centre, by: admin, size: 30 });
+    const first = await makeApplication('VERIFIED_DOCS', { centre, by: admin });
+    const again = await makeApplication('RETURNED', { centre, by: admin, batch });
+    const ids = [first.student.id, again.student.id];
+    const res = await post('/manage/applicants/approve-selected', admin.token, { ids });
+    expect([res.status, detailsOf(res)]).toEqual([
+      422,
+      [
+        {
+          field: 'body.reason',
+          message: 'Approval reason is required: 1 of the selected forms were rejected before, so this is their second approval.',
+        },
+      ],
+    ]);
+    for (const id of ids) expect((await applicationRow(id)).approval_stage).toBe(null);
+    expect((await approveSelected(ids, admin.token, 'Checked again')).body.data).toEqual({ approved: 2, skipped: 0 });
   });
 
   it('gives each form one event when two selections overlap', async () => {

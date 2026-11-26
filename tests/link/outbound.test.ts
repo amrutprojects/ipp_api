@@ -145,6 +145,7 @@ describe('what is told to Sarthi', () => {
       centre: 'Nashik Center',
       technology: 'Data Analytics & Business Intelligence',
       auditor_approved_by: 'Program Auditor',
+      auditor_approval_reason: 'Every document checked',
       edits: [],
     });
     const texts = (i: number) => Object.fromEntries(message.applications[i]!.fields.map((f) => [f.key, f.text]));
@@ -249,8 +250,8 @@ describe('what is told to Sarthi', () => {
     await deliver();
     await sendBack(a);
     await sendBack(b);
-    expect((await post(`/manage/applicants/${a.student.id}/approve`, admin.token)).status).toBe(200);
-    expect((await post('/manage/applicants/approve-selected', admin.token, { ids: [b.student.id] })).body.data.approved).toBe(1);
+    expect((await post(`/manage/applicants/${a.student.id}/approve`, admin.token, { reason: 'Corrected and checked again' })).status).toBe(200);
+    expect((await post('/manage/applicants/approve-selected', admin.token, { ids: [b.student.id], reason: 'Corrected and checked again' })).body.data.approved).toBe(1);
     expect((await kinds()).slice(1)).toEqual(['RESUBMIT', 'RESUBMIT']);
     await deliver();
     expect(
@@ -259,9 +260,14 @@ describe('what is told to Sarthi', () => {
         .slice(1)
         .map((m) => m.applications.map((x) => [x.action, x.id])),
     ).toEqual([[['RESUBMIT', a.applicationId]], [['RESUBMIT', b.applicationId]]]);
+    /* With the reason of the new approval, not the first one's. */
+    expect(sarthi.messages().slice(1).map((m) => m.applications[0]!.auditor_approval_reason)).toEqual([
+      'Corrected and checked again',
+      'Corrected and checked again',
+    ]);
     /* The first approval of a form is no message: it waits for a batch. */
     const fresh = await makeApplication('VERIFIED_DOCS', { centre, by: admin });
-    await post(`/manage/applicants/${fresh.student.id}/approve`, admin.token);
+    await post(`/manage/applicants/${fresh.student.id}/approve`, admin.token, { reason: 'Every document checked' });
     expect(await kinds()).toHaveLength(3);
   });
 

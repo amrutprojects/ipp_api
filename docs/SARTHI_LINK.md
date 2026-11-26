@@ -10,6 +10,10 @@ IPP Auditor ──batch──▶ DIVISION (Divisional Officer) ──▶ COEP �
 
 - A rejection needs a reason (3–500 characters), concerns one student and goes back **one** level; the officer there decides again (approves,
   or rejects one level further). It never holds up the other students of the batch.
+- A second approval needs a reason too (3–500 characters), at every level: when the level approving it decided the form before (the
+  Auditor approved it and it was rejected back, or returned it to the candidate; an officer approved or rejected it before and it came
+  back). A first approval asks for none. Approving several students together keeps the one reason for each. Every reason is shown in
+  the student's approval history on both sides (never in the audit logs: it is free text).
 - A student sent back to the Auditor stays in the batch; after the correction the Auditor approves the form again and it goes to DIVISION.
 - A batch is of one district and goes to the Divisional Officers that district is assigned to in Sarthi (an officer has one or more districts).
   Its size is set in IPP: a default (30) and, where needed, one per district.
@@ -66,6 +70,7 @@ done once, so a repeated or replayed call changes nothing. Anything wrong with t
     name: string; email: string; mobile_number: string; aadhaar_masked: string | null;
     district: string | null; category: string | null; centre: string | null; technology: string | null;   // of the form, as read
     submitted_at: string; auditor_approved_at: string | null; auditor_approved_by: string | null;
+    auditor_approval_reason: string | null;   // why the Auditor approved it (latest approval); null for a first approval
     fields: { key: string; step: 1 | 2; label_en: string; label_mr: string; type: string; text: string }[];
     documents: {
       code: string; name: string; name_mr: string | null; required: boolean; kind: 'DOCUMENT' | 'VIDEO';
@@ -102,7 +107,7 @@ the students with the Divisional Officer when it is sent (after it was made: all
     action: 'APPROVE' | 'REJECT' | 'MOVE';
     from: 'DIVISION' | 'COEP' | 'HEAD_OFFICE' | 'SUPER_ADMIN';
     to: 'AUDITOR' | 'DIVISION' | 'COEP' | 'HEAD_OFFICE' | 'SUPER_ADMIN' | 'APPROVED';
-    reason: string | null;   // REJECT: 3–500 characters
+    reason: string | null;   // REJECT: 3–500 characters; APPROVE: 3–500 characters for a second approval, else null; MOVE: null
     by: { name: string; role: string };
     at: string;              // ISO, when the officer decided
   }[];
