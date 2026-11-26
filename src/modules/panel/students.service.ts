@@ -62,8 +62,8 @@ export async function filters() {
   };
 }
 
-export async function listStudents(q: StudentListQuery) {
-  const { items, total } = await findStudents(q);
+export async function listStudents(q: StudentListQuery, trash = false) {
+  const { items, total } = await findStudents(q, trash);
   return {
     items: items.map((r) => {
       const documents = { uploaded: r.uploaded, verified: r.verified };

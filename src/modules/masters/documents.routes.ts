@@ -39,7 +39,7 @@ documentsApi.delete(
   '/manage/documents/:id',
   {
     auth: 'admin',
-    summary: 'Deletes an added document; files already uploaded for it stay with their forms',
+    summary: 'Deletes a document; files already uploaded for it stay with their forms',
     returns: 'null',
     params: idParams,
     notFound: NOT_FOUND,

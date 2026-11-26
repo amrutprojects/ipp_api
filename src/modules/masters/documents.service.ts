@@ -5,8 +5,8 @@ import { lock, orConflict, record, type By } from './common.service';
 import type { NewDocumentBody, UpdateDocumentBody } from './documents.schemas';
 
 /*
- * The documents of step 3. The program's own ones can be renamed, made optional and switched off; the ones an ADMIN adds
- * (code IPP_DOC_<n>) can be deleted too. One that is switched off or deleted is no longer asked for; a file already uploaded
+ * The documents of step 3 can be renamed, made optional, switched off or deleted; documents an ADMIN adds
+ * have codes IPP_DOC_<n>. One switched off or deleted is no longer asked for; a file already uploaded
  * for it stays with its form and is still shown.
  */
 const PREFIX = 'IPP_DOC_';
@@ -95,13 +95,11 @@ export const documentsService = {
     );
   },
 
-  /* Own documents only; files already uploaded for it stay with their forms. */
+  /* Keep the master row and its code so uploaded files remain accessible. */
   remove(who: By, id: string) {
     return transaction(async (db) => {
       await lockDocuments(db);
       const document = await getDocument(db, id);
-      if (document.is_system)
-        throw AppError.conflict('This document is part of the program and cannot be deleted. Switch it off instead.');
       await db.query('UPDATE program_documents SET deleted_at = now(), is_active = false WHERE id = $1', [id]);
       await record(db, who, 'edp.document.delete', 'program_documents', id, { code: document.code, in_use: document.in_use });
     });

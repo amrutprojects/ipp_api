@@ -1,4 +1,7 @@
 import { Api } from '../../http/api';
+import { one, transaction } from '../../db/pool';
+import { AppError } from '../../http/errors';
+import { audit } from '../../services/audit';
 import { panelOf } from '../../http/auth';
 import { ok } from '../../http/respond';
 import { STUDENT_NOT_FOUND, studentParams } from './common';
@@ -40,6 +43,38 @@ api.get(
     const { items, meta } = await listStudents(query);
     ok(res, items, undefined, meta);
   },
+);
+
+api.get(
+  '/manage/applicants/trash',
+  { auth: 'panel', summary: 'Deleted management records', returns: 'Applicant[]', query: studentListQuery },
+  async ({ res, query }) => {
+    const { items, meta } = await listStudents(query, true);
+    ok(res, items, undefined, meta);
+  },
+);
+
+async function setTrashed(id: string, trash: boolean, req: import('express').Request, userId: string) {
+  await transaction(async (db) => {
+    const row = await one<{ id: string }>(
+      `UPDATE student_accounts SET manage_deleted_at = ${trash ? 'now()' : 'NULL'}
+       WHERE id = $1 AND deleted_at IS NULL AND manage_deleted_at IS ${trash ? 'NULL' : 'NOT NULL'} RETURNING id`,
+      [id], db,
+    );
+    if (!row) throw AppError.notFound(STUDENT_NOT_FOUND);
+    await audit.inTx(db, req, { action: trash ? 'STUDENT_TRASHED' : 'STUDENT_RESTORED', resource: 'student_account', resourceId: id, actor: { kind: 'PANEL', id: userId } });
+  });
+}
+
+api.delete(
+  '/manage/applicants/:id',
+  { auth: 'admin', summary: 'Move a record to trash', returns: 'null', params: studentParams, notFound: STUDENT_NOT_FOUND },
+  async ({ req, res, params }) => { await setTrashed(params.id, true, req, panelOf(res).id); ok(res, null, 'Record moved to trash'); },
+);
+api.post(
+  '/manage/applicants/:id/restore',
+  { auth: 'admin', summary: 'Restore a record from trash', returns: 'null', params: studentParams, notFound: STUDENT_NOT_FOUND },
+  async ({ req, res, params }) => { await setTrashed(params.id, false, req, panelOf(res).id); ok(res, null, 'Record restored'); },
 );
 
 api.get(

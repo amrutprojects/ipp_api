@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { content, hasControlChars, isDate, uuid } from '../../lib/text';
+import { content, isDate, uuid } from '../../lib/text';
 import { BATCH_NAME_MAX, BATCH_SIZE, DELIVERY_MODES } from '../../program/constants';
 import { blankToNull, panelListQuery, studentIds } from './common';
 
@@ -14,7 +14,7 @@ const nothingToMissing = (v: unknown) => blankToNull(v) ?? undefined;
 const day = (message: string) =>
   z.preprocess(blankToNull, z.string({ invalid_type_error: message }).trim().refine(isDate, message).nullable().optional());
 
-const NO_TECHNOLOGY = 'Select a valid technology';
+const NO_TECHNOLOGY = 'Please select a technology.';
 const schedule = {
   start_date: day('Enter a valid start date'),
   end_date: day('Enter a valid end date'),
@@ -23,17 +23,8 @@ const schedule = {
     nothingToMissing,
     z.enum(DELIVERY_MODES, { errorMap: () => ({ message: 'Select a valid delivery mode' }) }).optional(),
   ),
-  /* The code of a technology; null clears it. */
-  technology: z.preprocess(
-    blankToNull,
-    z
-      .string({ invalid_type_error: NO_TECHNOLOGY })
-      .trim()
-      .max(120, NO_TECHNOLOGY)
-      .refine((v) => !hasControlChars(v), NO_TECHNOLOGY)
-      .nullable()
-      .optional(),
-  ),
+  /* A technology master ID; the service also checks unchanged IDs on edit. */
+  technology: z.string({ invalid_type_error: NO_TECHNOLOGY }).uuid(NO_TECHNOLOGY).optional(),
 };
 
 const name = content('Batch name', BATCH_NAME_MAX, 2);
@@ -44,6 +35,7 @@ export const createBatchBody = z
     centre_id: uuid('Centre'),
     ids: studentIds({ max: BATCH_SIZE.MAX, twice: 'Each student may be listed only once', list: 'Students must be a list' }),
     ...schedule,
+    technology: z.string({ required_error: NO_TECHNOLOGY, invalid_type_error: NO_TECHNOLOGY }).uuid(NO_TECHNOLOGY),
   })
   .strict();
 export type CreateBatchBody = z.infer<typeof createBatchBody>;

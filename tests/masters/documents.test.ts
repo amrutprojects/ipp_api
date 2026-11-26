@@ -192,14 +192,15 @@ describe('DELETE /manage/documents/:id', () => {
     expect((await add({ name_en: 'Caste Validity' })).code).toBe('IPP_DOC_2');
   });
 
-  it('keeps the documents of the program', async () => {
+  it('deletes a built-in document while preserving its existing file and name', async () => {
     const photo = await doc('PHOTO');
-    refused(
-      await del(admin, `/documents/${photo.id}`),
-      409,
-      'This document is part of the program and cannot be deleted. Switch it off instead.',
-    );
-    expect(await stored('program_documents', photo.id)).toEqual({ is_active: true, deleted: false });
+    const { applicationId } = await makeApplication('MAIN_DONE', { centre: await makeCentre() });
+    await addFile(applicationId, photo.code);
+    expect((await del(admin, '/documents/' + photo.id)).status).toBe(200);
+    expect(await stored('program_documents', photo.id)).toEqual({ is_active: false, deleted: true });
+    expect(await asked()).not.toContain(photo.code);
+    expect((await loadProgram()).documentName(photo.code)).toBe(photo.name_en);
+    expect((await one<{ n: number }>('SELECT count(*) AS n FROM application_files WHERE document_code = $1', [photo.code]))!.n).toBe(1);
   });
 });
 

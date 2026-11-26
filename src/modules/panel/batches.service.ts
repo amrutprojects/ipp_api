@@ -67,7 +67,7 @@ async function batchDtos(list: BatchRow[], db: Db) {
     start_date: b.start_date,
     end_date: b.end_date,
     delivery_mode: b.delivery_mode,
-    technology: b.technology_code ? { code: b.technology_code, name: b.technology_name } : null,
+    technology: b.technology_id && b.technology_code ? { id: b.technology_id, code: b.technology_code, name: b.technology_name } : null,
     created_at: b.created_at,
     created_by: b.created_by,
     updated_at: b.updated_at,
@@ -122,14 +122,14 @@ async function checkCentre(db: Db, id: string): Promise<{ district_id: string }>
   return centre;
 }
 
-/* The id of an active technology, by its code; likewise kept. */
-async function technologyId(db: Db, code: string): Promise<string> {
+/* The ID of an active technology, locked while the batch is saved. */
+async function technologyId(db: Db, id: string): Promise<string> {
   const option = await one<{ id: string }>(
-    `SELECT id FROM program_options WHERE kind = 'TECHNOLOGY' AND code = $1 AND is_active FOR SHARE`,
-    [code],
+    `SELECT id FROM program_options WHERE kind = 'TECHNOLOGY' AND id = $1 AND is_active AND deleted_at IS NULL FOR SHARE`,
+    [id],
     db,
   );
-  if (!option) throw invalid('technology', 'Select a valid technology');
+  if (!option) throw invalid('technology', 'Please select a technology.');
   return option.id;
 }
 
@@ -157,7 +157,7 @@ export async function createBatch(req: Request, user: PanelUser, body: CreateBat
     transaction(async (db) => {
       const selected = body.ids.length;
       const centre = await checkCentre(db, body.centre_id);
-      const technology = body.technology ? await technologyId(db, body.technology) : null;
+      const technology = await technologyId(db, body.technology);
       /* Locked before they are checked: no edit, verification or other batch comes in between. */
       const candidates = await lockCandidates(body.ids, db);
       const required = (await loadProgram(db)).requires('district_id');
@@ -215,7 +215,7 @@ export async function createBatch(req: Request, user: PanelUser, body: CreateBat
   return made;
 }
 
-/* Changes what is given of a batch, never its students. A center or a technology no longer offered stays while unchanged. */
+/* Changes the batch details, never its students; a technology must still be active. */
 export async function updateBatch(req: Request, user: PanelUser, id: string, body: UpdateBatchBody) {
   const saved = await orNameTaken(() =>
     transaction(async (db) => {
@@ -231,9 +231,9 @@ export async function updateBatch(req: Request, user: PanelUser, id: string, bod
       };
       checkDates(after.start_date, after.end_date);
       if (after.centre_id !== before.centre_id) await checkCentre(db, after.centre_id);
-      if (body.technology === null) after.technology_id = null;
-      else if (body.technology !== undefined && body.technology !== before.technology_code)
-        after.technology_id = await technologyId(db, body.technology);
+      const selectedTechnology = body.technology ?? before.technology_id;
+      if (!selectedTechnology) throw invalid('technology', 'Please select a technology.');
+      after.technology_id = await technologyId(db, selectedTechnology);
 
       const fields = (Object.keys(after) as (keyof typeof after)[]).filter((k) => after[k] !== before[k]);
       if (!fields.length) return batch(id, db);

@@ -75,17 +75,18 @@ export interface StudentRow extends ApprovalRow, FilterRow {
  * One page of students, and how many there are. The page's accounts are chosen first; everything else is read for them alone,
  * so a page far down the list costs no more than the first.
  */
-export async function findStudents(q: StudentListQuery): Promise<{ items: StudentRow[]; total: number }> {
+export async function findStudents(q: StudentListQuery, trash = false): Promise<{ items: StudentRow[]; total: number }> {
   const params: unknown[] = [];
   const where = conditions(q, params);
+  const trashCondition = trash ? 'a.manage_deleted_at IS NOT NULL' : 'a.manage_deleted_at IS NULL';
   const order = `a.created_at ${q.sortOrder === 'ASC' ? 'ASC' : 'DESC'}, a.id`;
   const pageParams = [...params];
   const limit = `LIMIT $${pageParams.push(q.limit)} OFFSET $${pageParams.push(offset(q))}`;
   const [count, items] = await Promise.all([
-    one<{ total: number }>(`SELECT count(*)::int AS total FROM ${PEOPLE} WHERE a.deleted_at IS NULL${where}`, params),
+    one<{ total: number }>(`SELECT count(*)::int AS total FROM ${PEOPLE} WHERE a.deleted_at IS NULL AND ${trashCondition}${where}`, params),
     rows<StudentRow>(
       `WITH page AS MATERIALIZED (
-         SELECT a.id FROM ${PEOPLE} WHERE a.deleted_at IS NULL${where} ORDER BY ${order} ${limit}
+         SELECT a.id FROM ${PEOPLE} WHERE a.deleted_at IS NULL AND ${trashCondition}${where} ORDER BY ${order} ${limit}
        )
        SELECT a.id, a.full_name, a.email, a.mobile, ${STAGE} AS stage, a.created_at, a.verified_at, a.last_login_at,
               p.status, p.basic_completed_at, p.main_completed_at, p.submitted_at, p.centre_id, p.registration_number,
@@ -125,5 +126,5 @@ export const countStudents = () =>
      FROM ${PEOPLE}
      LEFT JOIN (SELECT DISTINCT ON (account_id) account_id, status FROM follow_ups ORDER BY account_id, seq DESC) fu
        ON fu.account_id = a.id
-     WHERE a.deleted_at IS NULL GROUP BY 1, 2, 3`,
+     WHERE a.deleted_at IS NULL AND a.manage_deleted_at IS NULL GROUP BY 1, 2, 3`,
   );
