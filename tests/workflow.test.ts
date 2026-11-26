@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { one, pool, rows } from '../src/db/pool';
 import { sms } from '../src/services/sms';
 import { closeDatabase, resetDatabase } from './helpers/db';
-import { FILES, formValues, makePanelUser, newAadhaar, PASSWORD, request, type TestPanelUser } from './helpers/factory';
+import { FILES, formValues, makePanelUser, newAadhaar, optionId, PASSWORD, request, type TestPanelUser } from './helpers/factory';
 
 /*
  * The whole program through the API, as the portal drives it: the Auditor prepares the masters; two students sign up, fill
@@ -203,6 +203,7 @@ describe('the program from start to end', () => {
       name: 'First batch',
       centre_id: centre,
       ids: students.slice(0, 2).map((x) => x.id),
+      technology: await optionId('TECHNOLOGY', 'T01'),
     });
     ok(refused, 409);
     expect(refused.body.message).toBe('1 student of the selected cannot be added: every document must be verified first.');
@@ -222,7 +223,7 @@ describe('the program from start to end', () => {
       start_date: '2027-01-04',
       end_date: '2027-04-04',
       delivery_mode: 'BLENDED',
-      technology: 'T01',
+      technology: await optionId('TECHNOLOGY', 'T01'),
     });
     ok(made, 201);
     batch = made.body.data.id;

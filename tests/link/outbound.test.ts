@@ -68,6 +68,7 @@ async function makeRealBatch(list: TestApplication[], over: object = {}) {
     name: `Batch ${++n}`,
     centre_id: centre,
     ids: list.map((a) => a.student.id),
+    technology: await optionId('TECHNOLOGY', 'T01'),
     ...over,
   });
   expect([res.status, res.body.error]).toEqual([201, undefined]);
@@ -104,7 +105,7 @@ describe('what is told to Sarthi', () => {
         technology: 'T08',
       },
     });
-    const made = await makeRealBatch([a, b], { start_date: '2027-01-04', delivery_mode: 'BLENDED', technology: 'T01' });
+    const made = await makeRealBatch([a, b], { start_date: '2027-01-04', delivery_mode: 'BLENDED', technology: await optionId('TECHNOLOGY', 'T01') });
     expect(await outbox()).toEqual([
       expect.objectContaining({ kind: 'BATCH', batch_id: made.id, application_id: null, status: 'PENDING', attempts: 0 }),
     ]);
@@ -196,7 +197,7 @@ describe('what is told to Sarthi', () => {
 
   it('a changed batch, once for each change', async () => {
     const made = await makeRealBatch([await waiting()]);
-    expect((await patch(`/manage/batches/${made.id}`, admin.token, { name: 'New name', technology: 'T02' })).status).toBe(200);
+    expect((await patch(`/manage/batches/${made.id}`, admin.token, { name: 'New name', technology: await optionId('TECHNOLOGY', 'T02') })).status).toBe(200);
     /* Nothing changed. */
     expect((await patch(`/manage/batches/${made.id}`, admin.token, { name: 'New name' })).status).toBe(200);
     expect(await kinds()).toEqual(['BATCH', 'BATCH_UPDATE']);

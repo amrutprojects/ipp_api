@@ -39,8 +39,8 @@ beforeEach(async () => {
 afterAll(closeDatabase);
 
 let n = 0;
-const create = (ids: string[], over: object = {}, token = admin.token) =>
-  post('/manage/batches', token, { name: `New batch ${++n}`, centre_id: centre, ids, ...over });
+const create = async (ids: string[], over: object = {}, token = admin.token) =>
+  post('/manage/batches', token, { name: 'New batch ' + ++n, centre_id: centre, ids, technology: await optionId('TECHNOLOGY', 'T01'), ...over });
 const change = (id: string, body: object, token = admin.token) => patch(`/manage/batches/${id}`, token, body);
 const waiting = (o: Partial<Parameters<typeof makeApplication>[1]> = {}) => makeApplication('BATCH', { centre, by: admin, ...o });
 const idsOf = (list: TestApplication[]) => list.map((a) => a.student.id);
@@ -83,7 +83,7 @@ describe('POST /manage/batches', () => {
       start_date: '2026-06-01',
       end_date: '2026-08-31',
       delivery_mode: 'BLENDED',
-      technology: 'T01',
+      technology: await optionId('TECHNOLOGY', 'T01'),
     });
     expect(res.status).toBe(201);
     expect(res.body.message).toBe('Batch created and sent to the Divisional Officer');
@@ -162,7 +162,7 @@ describe('POST /manage/batches', () => {
     expect(JSON.stringify(event)).not.toMatch(/Anita|Zoya/);
   });
 
-  it('needs no dates, mode or technology: offline, the rest empty; codes go up by one', async () => {
+  it('requires technology but no dates or mode; codes go up by one', async () => {
     await setBatchSize(1);
     const first = await create(idsOf([await waiting()]));
     expect(first.body.data).toMatchObject({
@@ -170,7 +170,7 @@ describe('POST /manage/batches', () => {
       start_date: null,
       end_date: null,
       delivery_mode: 'OFFLINE',
-      technology: null,
+      technology: { id: await optionId('TECHNOLOGY', 'T01'), code: 'T01' },
       other_centre: 0,
     });
     /* A refused batch uses up no code. */
@@ -180,7 +180,6 @@ describe('POST /manage/batches', () => {
       start_date: null,
       end_date: '',
       delivery_mode: null,
-      technology: null,
     });
     expect(empty.status).toBe(201);
     expect(empty.body.data).toMatchObject({ code: 'IPP-B-0002', delivery_mode: 'OFFLINE', start_date: null, end_date: null });
@@ -216,6 +215,7 @@ describe('POST /manage/batches', () => {
       { field: 'body.name', message: 'Batch name is required' },
       { field: 'body.centre_id', message: 'Centre is required' },
       { field: 'body.ids', message: 'Select at least one student' },
+      { field: 'body.technology', message: 'Please select a technology.' },
     ]);
     const bad = await create([], {
       name: ' x ',
@@ -234,7 +234,7 @@ describe('POST /manage/batches', () => {
       { field: 'body.start_date', message: 'Enter a valid start date' },
       { field: 'body.end_date', message: 'Enter a valid end date' },
       { field: 'body.delivery_mode', message: 'Select a valid delivery mode' },
-      { field: 'body.technology', message: 'Select a valid technology' },
+      { field: 'body.technology', message: 'Please select a technology.' },
       { field: 'body.members', message: 'Unknown field' },
     ]);
     const id = UNKNOWN_ID;
@@ -248,7 +248,7 @@ describe('POST /manage/batches', () => {
       { field: 'body.name', message: 'Batch name contains characters that cannot be saved' },
     ]);
     expect(detailsOf(await create([id], { technology: '\u0000' }))).toEqual([
-      { field: 'body.technology', message: 'Select a valid technology' },
+      { field: 'body.technology', message: 'Please select a technology.' },
     ]);
     expect(await batches()).toBe(0);
   });
@@ -263,18 +263,19 @@ describe('POST /manage/batches', () => {
     expect((await create(ids, { start_date: '2026-06-01', end_date: '2026-06-02' })).status).toBe(201);
   });
 
-  it('needs an active technology, by its code', async () => {
+  it('needs an active technology, by its master ID', async () => {
     await setBatchSize(1);
     const ids = idsOf([await waiting()]);
     await pool.query(`UPDATE program_options SET is_active = false WHERE kind = 'TECHNOLOGY' AND code = 'T02'`);
+    const deletedTechnology = await optionId('TECHNOLOGY', 'T03');
     await pool.query(
       `UPDATE program_options SET is_active = false, deleted_at = now() WHERE kind = 'TECHNOLOGY' AND code = 'T03'`,
     );
-    for (const technology of ['T02', 'T03', 'T99', 'Male', await optionId('TECHNOLOGY', 'T01')])
+    for (const technology of [await optionId('TECHNOLOGY', 'T02'), deletedTechnology, UNKNOWN_ID, 'T01', 'Male', null, ''])
       expect(detailsOf(await create(ids, { technology }))).toEqual([
-        { field: 'body.technology', message: 'Select a valid technology' },
+        { field: 'body.technology', message: 'Please select a technology.' },
       ]);
-    expect((await create(ids, { technology: 'T01' })).status).toBe(201);
+    expect((await create(ids, { technology: await optionId('TECHNOLOGY', 'T01') })).status).toBe(201);
   });
 
   it('needs an active center; its district does not matter', async () => {
@@ -444,7 +445,7 @@ describe('POST /manage/batches', () => {
     await pool.query(`DELETE FROM document_checks WHERE application_id = $1 AND document_code = 'PHOTO'`, [
       unverified.applicationId,
     ]);
-    const wrong = { name: 'Taken', centre_id: UNKNOWN_ID, technology: 'T99' };
+    const wrong = { name: 'Taken', centre_id: UNKNOWN_ID, technology: '00000000-0000-4000-8000-000000000001' };
     expect(fieldsOf(await create(idsOf([pune]), wrong))).toEqual(['body.centre_id']);
     expect(fieldsOf(await create(idsOf([pune, draft]), wrong))).toEqual(['body.centre_id']);
     expect(fieldsOf(await create(idsOf([pune, draft]), { ...wrong, centre_id: centre }))).toEqual(['body.technology']);
@@ -609,6 +610,7 @@ describe('PATCH /manage/batches/:id', () => {
   let id: string;
   beforeEach(async () => {
     id = await makeBatch({ centre, by: admin, name: 'Pune Batch 1' });
+    await pool.query('UPDATE batches SET technology_id = $2 WHERE id = $1', [id, await optionId('TECHNOLOGY', 'T01')]);
     await makeApplication('DIVISION', { centre, by: admin, batch: id });
   });
 
@@ -623,7 +625,7 @@ describe('PATCH /manage/batches/:id', () => {
         start_date: '2026-06-01',
         end_date: '2026-08-31',
         delivery_mode: 'ONLINE',
-        technology: 'T05',
+        technology: await optionId('TECHNOLOGY', 'T05'),
       },
       second.token,
     );
@@ -662,8 +664,8 @@ describe('PATCH /manage/batches/:id', () => {
       expect(fieldsOf(await change(id, { name: 'X1', [key]: '1' }))).toEqual([`body.${key}`]);
   });
 
-  it('changes only what is given: null clears the dates and the technology, never the mode', async () => {
-    const all = { start_date: '2026-06-01', end_date: '2026-08-31', delivery_mode: 'BLENDED', technology: 'T05' };
+  it('changes only what is given: dates can be cleared but technology cannot', async () => {
+    const all = { start_date: '2026-06-01', end_date: '2026-08-31', delivery_mode: 'BLENDED', technology: await optionId('TECHNOLOGY', 'T05') };
     expect((await change(id, all)).status).toBe(200);
     const named = await change(id, { name: 'Renamed' });
     expect(named.body.data).toMatchObject({ ...all, technology: { code: 'T05' }, name: 'Renamed' });
@@ -671,8 +673,9 @@ describe('PATCH /manage/batches/:id', () => {
     expect(mode.body.data.delivery_mode).toBe('BLENDED');
     const noStart = await change(id, { start_date: null });
     expect(noStart.body.data).toMatchObject({ start_date: null, end_date: '2026-08-31' });
-    const cleared = await change(id, { end_date: null, technology: null });
-    expect(cleared.body.data).toMatchObject({ start_date: null, end_date: null, technology: null, delivery_mode: 'BLENDED' });
+    expect(detailsOf(await change(id, { technology: null }))).toEqual([{ field: 'body.technology', message: 'Please select a technology.' }]);
+    const cleared = await change(id, { end_date: null });
+    expect(cleared.body.data).toMatchObject({ start_date: null, end_date: null, technology: { code: 'T05' }, delivery_mode: 'BLENDED' });
   });
 
   it('refuses nothing to change, and records nothing when everything stays as it is', async () => {
@@ -682,7 +685,7 @@ describe('PATCH /manage/batches/:id', () => {
     const second = await makePanelUser('ADMIN');
     const same = await change(
       id,
-      { name: 'Pune Batch 1', centre_id: centre.toUpperCase(), start_date: null, delivery_mode: 'OFFLINE', technology: null },
+      { name: 'Pune Batch 1', centre_id: centre.toUpperCase(), start_date: null, delivery_mode: 'OFFLINE', technology: await optionId('TECHNOLOGY', 'T01') },
       second.token,
     );
     expect(same.status).toBe(200);
@@ -705,16 +708,18 @@ describe('PATCH /manage/batches/:id', () => {
     ]);
   });
 
-  it('keeps a center or technology switched off since while it is unchanged, and takes only active ones', async () => {
-    expect((await change(id, { technology: 'T05' })).status).toBe(200);
+  it('keeps the centre but requires an active technology on every edit', async () => {
+    const tech05 = await optionId('TECHNOLOGY', 'T05');
+    const tech06 = await optionId('TECHNOLOGY', 'T06');
+    expect((await change(id, { technology: tech05 })).status).toBe(200);
     await pool.query(`UPDATE program_options SET is_active = false WHERE kind = 'TECHNOLOGY' AND code IN ('T05', 'T06')`);
     await pool.query(`UPDATE centres SET is_active = false WHERE id = $1`, [centre]);
-    const kept = await change(id, { name: 'Renamed', technology: 'T05', centre_id: centre });
-    expect(kept.status).toBe(200);
-    expect(kept.body.data).toMatchObject({ name: 'Renamed', technology: { code: 'T05' }, centre: { id: centre } });
-    expect(detailsOf(await change(id, { technology: 'T06' }))).toEqual([
-      { field: 'body.technology', message: 'Select a valid technology' },
+    const kept = await change(id, { name: 'Renamed', technology: tech05, centre_id: centre });
+    expect(fieldsOf(kept)).toEqual(['body.technology']);
+    expect(detailsOf(await change(id, { technology: tech06 }))).toEqual([
+      { field: 'body.technology', message: 'Please select a technology.' },
     ]);
+    expect((await change(id, { technology: await optionId('TECHNOLOGY', 'T01') })).status).toBe(200);
     const off = await makeCentre({ active: false });
     expect(detailsOf(await change(id, { centre_id: off }))).toEqual([
       { field: 'body.centre_id', message: 'This centre is inactive. Choose an active centre.' },
@@ -723,8 +728,7 @@ describe('PATCH /manage/batches/:id', () => {
       { field: 'body.centre_id', message: 'Centre not found' },
     ]);
     /* Once changed, the one switched off is no longer there to go back to. */
-    expect((await change(id, { technology: 'T01' })).status).toBe(200);
-    expect(fieldsOf(await change(id, { technology: 'T05' }))).toEqual(['body.technology']);
+    expect(fieldsOf(await change(id, { technology: tech05 }))).toEqual(['body.technology']);
   });
 
   it('refuses the name of another batch; its own in another case is fine', async () => {
@@ -735,6 +739,7 @@ describe('PATCH /manage/batches/:id', () => {
     expect((await change(id, { name: 'PUNE batch 1' })).body.data.name).toBe('PUNE batch 1');
     expect(fieldsOf(await change(id, { name: 'x' }))).toEqual(['body.name']);
     const second = await makeBatch({ centre, by: admin, name: 'Third' });
+    await pool.query('UPDATE batches SET technology_id = $2 WHERE id = $1', [second, await optionId('TECHNOLOGY', 'T01')]);
     const both = await Promise.all([change(id, { name: 'Same' }), change(second, { name: 'same' })]);
     expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
     expect(await rows(`SELECT lower(name) AS name FROM batches WHERE lower(name) = 'same'`)).toHaveLength(1);
