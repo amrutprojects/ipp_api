@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { one, pool, rows } from '../src/db/pool';
 import { aadhaarBlindIndex, decryptAadhaar } from '../src/lib/aadhaar';
 import { FIELDS } from '../src/db/seeds/data';
-import { makeApplication, makeCentre, makePanelUser, newAadhaar, request, type TestPanelUser } from './helpers/factory';
+import { makeApplication, makeCentre, makePanelUser, newAadhaar, optionId, request, type TestPanelUser } from './helpers/factory';
 import { resetDatabase } from './helpers/db';
 import {
   application,
@@ -66,7 +66,9 @@ async function toBatch(accountId: string, centre: string) {
     );
   expect((await panel('post', `/applicants/${accountId}/approve`, { reason: 'Every document checked' })).status).toBe(200);
   expect((await panel('put', '/settings/batch', { size: 1 })).status).toBe(200);
-  const res = await panel('post', '/batches', { name: `Batch ${accountId.slice(0, 8)}`, centre_id: centre, ids: [accountId] });
+  /* A batch names its technology (required since the technology master). */
+  const technology = await optionId('TECHNOLOGY', 'T01');
+  const res = await panel('post', '/batches', { name: `Batch ${accountId.slice(0, 8)}`, centre_id: centre, ids: [accountId], technology });
   expect([res.status, res.body.message]).toEqual([201, expect.any(String)]);
   return res.body.data as { district: { name: string }; members: { name: string }[] };
 }

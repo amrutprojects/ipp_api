@@ -19,6 +19,10 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['post', '/manage/applicants/:id/documents/:docType/verify', 'admin'],
   ['post', '/manage/applicants/:id/return', 'admin'],
   ['get', '/manage/applicants/:id/returns', 'panel'],
+  /* Trash: a deleted applicant is listed there and can be brought back. */
+  ['get', '/manage/applicants/trash', 'panel'],
+  ['delete', '/manage/applicants/:id', 'admin'],
+  ['post', '/manage/applicants/:id/restore', 'admin'],
   ['get', '/manage/applicants/:id/documents/:docType/file', 'panel'],
   ['get', '/manage/applicants/:id/documents.zip', 'panel'],
   ['put', '/manage/applicants/:id/form', 'admin'],
@@ -62,10 +66,10 @@ beforeAll(async () => {
 afterAll(closeDatabase);
 
 describe('who may call the panel', () => {
-  it('has the 39 endpoints of the panel, each with its guard', () => {
+  it('has the 42 endpoints of the panel, each with its guard', () => {
     const sorted = (list: string[][]) => list.map((e) => e.join(' ')).sort();
     expect(sorted(declared().map((e) => [e.method, e.path, e.auth]))).toEqual(sorted(ENDPOINTS));
-    expect(ENDPOINTS).toHaveLength(39);
+    expect(ENDPOINTS).toHaveLength(42);
   });
 
   it.each(ENDPOINTS.filter(([, , auth]) => auth !== 'public'))('%s %s needs a panel session', async (method, path) => {

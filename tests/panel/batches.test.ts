@@ -142,6 +142,8 @@ describe('POST /manage/batches', () => {
         },
         register_id: null,
         batch: { id: d.id, name: 'Nashik Batch 1' },
+        /* With the Divisional Officer now: not the Auditor's to approve again, so no reason is asked. */
+        reason_required: false,
       },
     });
     expect((await get(`/manage/batches/${d.id}`, viewer.token)).body.data).toEqual(d);
