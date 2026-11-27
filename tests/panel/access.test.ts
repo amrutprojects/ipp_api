@@ -24,6 +24,7 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['delete', '/manage/applicants/:id', 'admin'],
   ['post', '/manage/applicants/:id/restore', 'admin'],
   ['get', '/manage/applicants/:id/documents/:docType/file', 'panel'],
+  ['get', '/manage/applicants/:id/documents/:docType/link', 'panel'],
   ['get', '/manage/applicants/:id/documents.zip', 'panel'],
   ['put', '/manage/applicants/:id/form', 'admin'],
   ['post', '/manage/applicants/:id/documents', 'admin'],
@@ -66,10 +67,10 @@ beforeAll(async () => {
 afterAll(closeDatabase);
 
 describe('who may call the panel', () => {
-  it('has the 42 endpoints of the panel, each with its guard', () => {
+  it('has the 43 endpoints of the panel, each with its guard', () => {
     const sorted = (list: string[][]) => list.map((e) => e.join(' ')).sort();
     expect(sorted(declared().map((e) => [e.method, e.path, e.auth]))).toEqual(sorted(ENDPOINTS));
-    expect(ENDPOINTS).toHaveLength(42);
+    expect(ENDPOINTS).toHaveLength(43);
   });
 
   it.each(ENDPOINTS.filter(([, , auth]) => auth !== 'public'))('%s %s needs a panel session', async (method, path) => {

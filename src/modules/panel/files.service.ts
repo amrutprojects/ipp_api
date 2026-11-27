@@ -3,7 +3,8 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { Response } from 'express';
 import { ZipFile } from 'yazl';
-import { rows } from '../../db/pool';
+import { one, rows } from '../../db/pool';
+import { fileLink } from '../../program/file-links';
 import { AppError } from '../../http/errors';
 import { logger } from '../../lib/logger';
 import { loadProgram, type Program } from '../../program/masters';
@@ -80,6 +81,18 @@ async function isStored(f: FileRow): Promise<boolean> {
 }
 
 /* One document: opened inline under its own name, or downloaded under the candidate's, e.g. IPP-000001_Asha_Testkar_Photo.pdf. */
+/* A short-lived link to an uploaded document of a student (program/file-links.ts); found by one query, not the whole program. */
+export async function documentLink(accountId: string, code: string) {
+  await studentAccount(accountId);
+  const f = await one<{ id: string }>(
+    `SELECT f.id FROM application_files f JOIN applications p ON p.id = f.application_id
+     WHERE p.account_id = $1 AND p.deleted_at IS NULL AND f.document_code = $2`,
+    [accountId, code],
+  );
+  if (!f) throw AppError.notFound(NO_FILE);
+  return fileLink(f.id);
+}
+
 export async function sendDocument(res: Response, accountId: string, code: string, download: boolean): Promise<void> {
   const c = await candidateFiles(accountId);
   const f = c.files.find((x) => x.document_code === code);

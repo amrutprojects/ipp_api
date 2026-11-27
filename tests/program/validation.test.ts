@@ -369,6 +369,24 @@ describe('Masters → Form fields', () => {
       rules: 'Each check may be chosen only once',
     });
     expect(details(await rules('TEXT', { type: 'nope' }))).toEqual({ 'rules.0.type': 'Unknown check' });
+    /* Two checks of what an answer is made of that no answer can keep together: the field could never be filled in. */
+    expect(details(await rules('TEXT', { type: 'letters' }, { type: 'digits' }))).toEqual({
+      'rules.1.type': 'Digits only cannot go with Letters only: no answer can be both',
+    });
+    expect(details(await rules('TEXT', { type: 'pin_code' }, { type: 'no_spaces' }, { type: 'pan' }, { type: 'email' }))).toEqual({
+      'rules.2.type': 'PAN number cannot go with PIN code: no answer can be both',
+      'rules.3.type': 'Email address cannot go with PIN code: no answer can be both',
+    });
+    /* Those some answers keep go together (a mobile number is digits only, a PAN letters and digits). */
+    for (const pair of [
+      ['digits', 'indian_mobile'],
+      ['letters_digits', 'pan'],
+      ['digits', 'aadhaar'],
+      ['letters', 'letters_digits'],
+      ['uppercase', 'ifsc'],
+      ['no_spaces', 'email'],
+    ])
+      expect((await rules('TEXT', ...pair.map((type) => ({ type })))).status, pair.join('+')).toBe(201);
     /* "Different from" names another field of the form; "within its grading" is of a number. */
     expect(
       details(

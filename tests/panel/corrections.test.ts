@@ -184,12 +184,10 @@ describe('PUT /manage/applicants/:id/form', () => {
     expect(changesOf(percent)).toEqual(['grading_type', 'cgpa_scale', 'score']);
     expect(percent.body.data.form.cgpa_scale).toBe('');
 
-    const same = await edit(id, { alternate_mobile_number: `+91 ${s.student.mobile}` });
-    expect(detailsOf(same)).toEqual([
-      { field: 'body.alternate_mobile_number', message: 'Alternate Mobile Number must be different from Mobile Number' },
-    ]);
+    /* The alternate (WhatsApp) number may be the mobile number (migration 0011). */
+    expect((await edit(id, { alternate_mobile_number: `+91 ${s.student.mobile}` })).status).toBe(200);
     expect((await edit(id, { alternate_mobile_number: '9123456780' })).status).toBe(200);
-    expect(fieldsOf(await edit(id, { mobile_number: '9123456780' }))).toEqual(['body.alternate_mobile_number']);
+    expect((await edit(id, { mobile_number: '9123456780' })).status).toBe(200);
     expect(fieldsOf(await edit(id, { alternate_email: s.student.email }))).toEqual(['body.alternate_email']);
   });
 

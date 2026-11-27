@@ -1,7 +1,7 @@
 ﻿import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { pool } from '../../src/db/pool';
 import { closeDatabase, resetDatabase } from '../helpers/db';
-import { makeApplication, makeCentre, makePanelUser, request } from '../helpers/factory';
+import { makeApplication, makeBatch, makeCentre, makePanelUser, request } from '../helpers/factory';
 import { applicationRow, audits, get, post } from './helpers';
 
 afterAll(closeDatabase);
@@ -33,6 +33,33 @@ describe('management trash', () => {
     expect(await applicationRow(student.id)).toEqual(before);
     expect(await audits('STUDENT_TRASHED')).toHaveLength(1);
     expect(await audits('STUDENT_RESTORED')).toHaveLength(1);
+  });
+
+  it('cannot delete a record once the Auditor has approved its form: at every later stage, after the final approval, and when sent back', async () => {
+    const admin = await makePanelUser('ADMIN');
+    const centre = await makeCentre();
+    const batch = await makeBatch({ centre, by: admin, size: 30 });
+    const approved = [
+      await makeApplication('BATCH', { centre, by: admin }),
+      await makeApplication('DIVISION', { centre, by: admin, batch }),
+      await makeApplication('APPROVED', { centre, by: admin, batch }),
+      /* Approved, then sent back to the Auditor by the Divisional Officer: approved once all the same. */
+      await makeApplication('RETURNED', { centre, by: admin, batch }),
+    ];
+    const open = [await makeApplication('SUBMITTED', { centre }), await makeApplication('VERIFIED_DOCS', { centre, by: admin })];
+    const rows = (await get('/manage/applicants?limit=100', admin.token)).body.data as { id: string; can_delete: boolean }[];
+    const canDelete = (id: string) => rows.find((r) => r.id === id)!.can_delete;
+    for (const a of approved) {
+      expect(canDelete(a.student.id)).toBe(false);
+      const res = await request('delete', `/manage/applicants/${a.student.id}`, admin.token);
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('APPROVED_NOT_DELETABLE');
+    }
+    for (const a of open) {
+      expect(canDelete(a.student.id)).toBe(true);
+      expect((await request('delete', `/manage/applicants/${a.student.id}`, admin.token)).status).toBe(200);
+    }
+    expect(await audits('STUDENT_TRASHED')).toHaveLength(open.length);
   });
 });
 

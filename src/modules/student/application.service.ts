@@ -26,9 +26,10 @@ export interface ApplicationRow {
   registration_code: string | null;
   registration_number: string | null;
   batch_id: string | null;
+  approval_stage: string | null;
 }
 const SELECT = `SELECT id, status, current_step, data, aadhaar_enc, aadhaar_last4, basic_completed_at, main_completed_at,
-  submitted_at, registration_code, registration_number, batch_id FROM applications WHERE account_id = $1`;
+  submitted_at, registration_code, registration_number, batch_id, approval_stage FROM applications WHERE account_id = $1`;
 
 /* The student's application, made on first use; `lock` keeps its row until the transaction ends. */
 async function load(accountId: string, db: Db = pool, lock = false): Promise<ApplicationRow> {
@@ -118,7 +119,11 @@ async function view(account: StudentAccount) {
     registration: {
       registration_id: p.registration_code!,
       registration_number: p.registration_number,
-      status: p.status,
+      /*
+       * What the student reads as the status: Submitted until the final approval (Head Office in Sarthi, or the Super Admin
+       * while Head Office approval is off, come back by the link as stage APPROVED), then Approved.
+       */
+      status: p.approval_stage === 'APPROVED' ? 'APPROVED' : p.status,
       aadhaar_masked: aadhaarMasked,
       display: names,
     },

@@ -3,7 +3,7 @@ import { one, pool, rows } from '../../src/db/pool';
 import { config } from '../../src/config';
 import { emails, mailer } from '../../src/services/mailer';
 import { closeDatabase, resetDatabase } from '../helpers/db';
-import { activeDocuments, FILES, makeApplication, makeCentre, makePanelUser, request, type TestPanelUser } from '../helpers/factory';
+import { activeDocuments, FILES, makeApplication, makeBatch, makeCentre, makePanelUser, request, type TestPanelUser } from '../helpers/factory';
 import { audits, get, post, put } from './helpers';
 
 /*
@@ -222,5 +222,22 @@ describe('the e-mail', () => {
     expect(mail.html).toContain('Photo &#60;blurred&#62;<br>Upload again');
     expect(mail.html).not.toContain('<blurred>');
     expect(mail.html).toContain('href="https://ipp.example/login"');
+  });
+});
+
+describe('the candidate sees the final approval', () => {
+  it('the status is Submitted until the final approval, then Approved', async () => {
+    const batch = await makeBatch({ centre, by: admin, size: 30 });
+    const submitted = await makeApplication('DIVISION', { centre, by: admin, batch });
+    const seen = async (token: string) => (await request('get', '/application', token)).body.data.registration.status;
+    expect(await seen(submitted.student.token)).toBe('SUBMITTED');
+    await pool.query(`UPDATE applications SET approval_stage = 'APPROVED' WHERE id = $1`, [submitted.applicationId]);
+    expect(await seen(submitted.student.token)).toBe('APPROVED');
+    /* Still a submitted form that cannot be changed. */
+    const view = (await request('get', '/application', submitted.student.token)).body.data;
+    expect([view.status, view.editable]).toEqual(['SUBMITTED', false]);
+    /* Counted and listed as Final Approved Students on the panel. */
+    expect((await get('/manage/summary', admin.token)).body.data.approvals.APPROVED).toBe(1);
+    expect(await listed('?application_stage=APPROVED')).toEqual([submitted.student.id]);
   });
 });

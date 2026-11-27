@@ -353,7 +353,7 @@ describe('PUT /application/steps/:step, complete = true', () => {
         }),
       ),
     ).toEqual([
-      { field: 'body.alternate_mobile_number', message: 'Alternate Mobile Number must be different from Mobile Number' },
+      /* The alternate (WhatsApp) number may be the mobile number (migration 0011); the e-mail must differ. */
       { field: 'body.alternate_email', message: 'Alternate Email must be different from Email' },
     ]);
   });

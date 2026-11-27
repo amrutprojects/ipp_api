@@ -149,14 +149,14 @@ describe('states', () => {
     refused(
       await del(admin, `/states/${maharashtra}`),
       409,
-      'This state cannot be deleted while 36 districts reference it. Deactivate it instead, or move or delete the districts first.',
+      'This state cannot be deleted while 36 districts reference it. Set it to Inactive instead, or move or delete the districts first.',
     );
     const goa = await addState('Goa', 'GA');
     const north = await addDistrict('North Goa', { state_id: goa.id });
     refused(
       await del(admin, `/states/${goa.id}`),
       409,
-      'This state cannot be deleted while 1 district references it. Deactivate it instead, or move or delete the districts first.',
+      'This state cannot be deleted while 1 district references it. Set it to Inactive instead, or move or delete the districts first.',
     );
     expect(await stored('states', goa.id)).toEqual({ is_active: true, deleted: false });
     await del(admin, `/districts/${north.id}`);
@@ -244,22 +244,22 @@ describe('districts', () => {
 
     const a = await addTaluka(id, 'One');
     await held(
-      'This district cannot be deleted while 1 taluka references it. Deactivate it instead, or move or delete the talukas first.',
+      'This district cannot be deleted while 1 taluka references it. Set it to Inactive instead, or move or delete the talukas first.',
     );
     const b = await addTaluka(id, 'Two', { is_active: false });
     await held(
-      'This district cannot be deleted while 2 talukas reference it. Deactivate it instead, or move or delete the talukas first.',
+      'This district cannot be deleted while 2 talukas reference it. Set it to Inactive instead, or move or delete the talukas first.',
     );
     expect(await row()).toMatchObject({ talukas: 2 });
 
     const centre = await makeCentreIn(id);
     await held(
-      'This district cannot be deleted while 2 talukas and 1 center reference it. Deactivate it instead, or remove those records first.',
+      'This district cannot be deleted while 2 talukas and 1 center reference it. Set it to Inactive instead, or remove those records first.',
     );
     for (const t of [a, b]) await del(admin, `/talukas/${t.id}`);
     expect(await row()).toMatchObject({ talukas: 0, in_use: true });
     await held(
-      'This district cannot be deleted while 1 center references it. Deactivate it instead, or remove those records first.',
+      'This district cannot be deleted while 1 center references it. Set it to Inactive instead, or remove those records first.',
     );
 
     const elsewhere = await makeCentre();
@@ -273,13 +273,13 @@ describe('districts', () => {
       await makeApplication('SUBMITTED', { centre: elsewhere, values: { district_id: id } }),
     ];
     await held(
-      "This district cannot be deleted while 1 center, 2 students' forms and 1 batch reference it. Deactivate it instead.",
+      "This district cannot be deleted while 1 center, 2 students' forms and 1 batch reference it. Set it to Inactive instead.",
     );
     await remove('centres', 'id', centre);
     await remove('applications', 'id', forms[0]!.applicationId);
-    await held("This district cannot be deleted while 1 student's form and 1 batch reference it. Deactivate it instead.");
+    await held("This district cannot be deleted while 1 student's form and 1 batch reference it. Set it to Inactive instead.");
     await remove('applications', 'id', forms[1]!.applicationId);
-    await held('This district cannot be deleted while 1 batch references it. Deactivate it instead.');
+    await held('This district cannot be deleted while 1 batch references it. Set it to Inactive instead.');
     expect(await stored('districts', id)).toEqual({ is_active: true, deleted: false });
     await remove('batches', 'id', batch);
 
@@ -576,13 +576,13 @@ describe('talukas', () => {
     refused(
       await del(admin, path),
       409,
-      'This taluka cannot be deleted while 1 center references it. Deactivate it instead, or remove those records first.',
+      'This taluka cannot be deleted while 1 center references it. Set it to Inactive instead, or remove those records first.',
     );
     const second = await makeCentreIn(pune, taluka.id);
     refused(
       await del(admin, path),
       409,
-      'This taluka cannot be deleted while 2 centers reference it. Deactivate it instead, or remove those records first.',
+      'This taluka cannot be deleted while 2 centers reference it. Set it to Inactive instead, or remove those records first.',
     );
     refused(
       await patch(admin, path, { district_id: nashik }),
@@ -679,6 +679,6 @@ it('a district of a batch made in the panel is held', async () => {
   refused(
     await del(admin, `/districts/${await districtId()}`),
     409,
-    'This district cannot be deleted while 1 center and 1 batch reference it. Deactivate it instead.',
+    'This district cannot be deleted while 1 center and 1 batch reference it. Set it to Inactive instead.',
   );
 });

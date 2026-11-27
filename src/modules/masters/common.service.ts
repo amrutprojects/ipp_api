@@ -112,6 +112,6 @@ export function assertNotHeld(label: string, counts: HeldCounts): void {
   const held = heldOf(counts);
   if (held.length)
     throw AppError.conflict(
-      `This ${label} cannot be deleted while ${heldText(counts)} it. Deactivate it instead${remedy(held)}.`,
+      `This ${label} cannot be deleted while ${heldText(counts)} it. Set it to Inactive instead${remedy(held)}.`,
     );
 }

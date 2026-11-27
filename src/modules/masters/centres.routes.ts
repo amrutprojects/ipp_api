@@ -56,7 +56,7 @@ centresApi.patch(
   '/manage/centres/:id/status',
   {
     auth: 'admin',
-    summary: 'Activates or deactivates a center (only active ones are offered to students and for batches)',
+    summary: 'Sets a center to Active or Inactive (only active ones are offered to students and for batches)',
     returns: CENTRE,
     params: idParams,
     notFound: NOT_FOUND,
@@ -64,7 +64,7 @@ centresApi.patch(
   },
   async (c) => {
     const centre = await centresService.setStatus(by(c), c.params.id, c.body.isActive);
-    ok(c.res, centre, c.body.isActive ? 'Center activated' : 'Center deactivated');
+    ok(c.res, centre, c.body.isActive ? 'Center set to Active' : 'Center set to Inactive');
   },
 );
 

@@ -4,6 +4,7 @@ import type { Readable } from 'node:stream';
 import { one, rows, transaction } from '../../db/pool';
 import type { StudentAccount } from '../../http/auth';
 import { AppError } from '../../http/errors';
+import { fileLink } from '../../program/file-links';
 import { folderFor } from '../../program/folders';
 import { loadProgram } from '../../program/masters';
 import { checkUploads, discardFiles, discardUnusedFiles } from '../../program/uploads';
@@ -83,6 +84,17 @@ export const documentsService = {
   },
 
   /* The student's own file: of the draft or the submitted form, also of a document switched off since. */
+  /* A short-lived link to the student's own file (program/file-links.ts). */
+  async link(account: StudentAccount, code: string) {
+    const file = await one<{ id: string }>(
+      `SELECT f.id FROM application_files f JOIN applications p ON p.id = f.application_id
+       WHERE p.account_id = $1 AND f.document_code = $2`,
+      [account.id, code],
+    );
+    if (!file) throw noFile();
+    return fileLink(file.id);
+  },
+
   async file(account: StudentAccount, code: string): Promise<{ stream: Readable; mimeType: string; name: string }> {
     const file = await one<{ storage_key: string; mime_type: string; original_name: string }>(
       `SELECT f.storage_key, f.mime_type, f.original_name FROM application_files f JOIN applications p ON p.id = f.application_id

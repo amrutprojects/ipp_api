@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { studentApis } from '../../src/modules/student';
 
-it('the student part is these 19 endpoints; sign-up, sign-in and passwords are limited more strictly', () => {
+it('the student part is these 20 endpoints; sign-up, sign-in and passwords are limited more strictly', () => {
   const endpoints = studentApis.flatMap((a) => a.endpoints);
   expect(endpoints.map((e) => `${e.method.toUpperCase()} ${e.path} ${e.auth}${e.limited ? ' limited' : ''}`).sort()).toEqual(
     [
@@ -20,6 +20,7 @@ it('the student part is these 19 endpoints; sign-up, sign-in and passwords are l
       'POST /application/documents student',
       'DELETE /application/documents/:docType student',
       'GET /application/documents/:docType/file student',
+      'GET /application/documents/:docType/link student',
       'POST /application/submit student',
       'PUT /application/correction student',
       'POST /application/correction/documents student',

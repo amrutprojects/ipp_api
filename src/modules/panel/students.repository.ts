@@ -28,6 +28,13 @@ const AWAITING = `p.status = 'SUBMITTED' AND p.approval_stage IS NULL AND NOT ${
 const WITH_CANDIDATE = `p.status = 'SUBMITTED' AND p.approval_stage IS NULL AND ${OPEN_RETURN('p')}`;
 const SENT_BACK = `(SELECT e.action FROM approval_events e WHERE e.application_id = p.id ORDER BY e.seq DESC LIMIT 1) = 'REJECT'`;
 
+/*
+ * Ever approved by the Auditor (over applications `p`): at a stage now, or approved before and sent back since. Such a record
+ * can no longer be deleted (moved to the Trash), at any later stage either.
+ */
+export const AUDITOR_APPROVED = `coalesce(p.approval_stage IS NOT NULL OR p.approved_at IS NOT NULL OR EXISTS (
+  SELECT 1 FROM approval_events e WHERE e.application_id = p.id AND e.action = 'APPROVE' AND e.from_stage = 'AUDITOR'), false)`;
+
 /* A follow-up status is the one of the latest follow-up. */
 const FOLLOW_UP = `(SELECT f.status FROM follow_ups f WHERE f.account_id = a.id ORDER BY f.seq DESC LIMIT 1)`;
 
@@ -77,6 +84,8 @@ export interface StudentRow extends ApprovalRow, FilterRow {
   follow_up_by: string | null;
   /* Sent back to the candidate, not resubmitted yet (program/returns). */
   returned_at: Date | null;
+  /* Ever approved by the Auditor: the record can no longer be deleted. */
+  auditor_approved: boolean;
 }
 
 /*
@@ -103,7 +112,8 @@ export async function findStudents(q: StudentListQuery, trash = false): Promise<
               fu.status AS follow_up_status, fu.note AS follow_up_note, fu.created_at AS follow_up_at, fu.by AS follow_up_by,
               ${FILTER_COLUMNS}, ${APPROVAL_COLUMNS},
               (SELECT r.created_at FROM application_returns r WHERE r.application_id = p.id AND r.resubmitted_at IS NULL)
-                AS returned_at
+                AS returned_at,
+              ${AUDITOR_APPROVED} AS auditor_approved
        FROM page JOIN student_accounts a ON a.id = page.id ${APPLICATION}
        ${FILTER_JOINS}${APPROVAL_JOINS}${DOCUMENT_COUNTS}
        LEFT JOIN LATERAL (

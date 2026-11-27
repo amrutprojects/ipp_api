@@ -6,6 +6,7 @@ import { audit } from '../../services/audit';
 import { panelOf } from '../../http/auth';
 import { ok } from '../../http/respond';
 import { STUDENT_NOT_FOUND, studentParams } from './common';
+import { AUDITOR_APPROVED } from './students.repository';
 import { studentListQuery } from './students.schemas';
 import { filters, listStudents, student, summary } from './students.service';
 
@@ -55,8 +56,21 @@ api.get(
   },
 );
 
+/* Approved by the Auditor once: the record stays, at every later stage and after the final approval too. */
+export const APPROVED_NOT_DELETABLE =
+  'This application has been approved by the Auditor, so it can no longer be deleted (also at the later approval stages).';
+
 async function setTrashed(id: string, trash: boolean, req: Request, userId: string) {
   await transaction(async (db) => {
+    if (trash) {
+      const locked = await one<{ approved: boolean }>(
+        `SELECT ${AUDITOR_APPROVED} AS approved FROM student_accounts a
+         JOIN applications p ON p.account_id = a.id AND p.deleted_at IS NULL WHERE a.id = $1 FOR UPDATE OF a, p`,
+        [id],
+        db,
+      );
+      if (locked?.approved) throw AppError.conflict(APPROVED_NOT_DELETABLE, 'APPROVED_NOT_DELETABLE');
+    }
     const row = await one<{ id: string }>(
       `UPDATE student_accounts SET manage_deleted_at = ${trash ? 'now()' : 'NULL'}
        WHERE id = $1 AND deleted_at IS NULL AND manage_deleted_at IS ${trash ? 'NULL' : 'NOT NULL'} RETURNING id`,
@@ -69,7 +83,7 @@ async function setTrashed(id: string, trash: boolean, req: Request, userId: stri
 
 api.delete(
   '/manage/applicants/:id',
-  { auth: 'admin', summary: 'Move a record to trash', returns: 'null', params: studentParams, notFound: STUDENT_NOT_FOUND },
+  { auth: 'admin', summary: 'Move a record to trash (409 APPROVED_NOT_DELETABLE once the Auditor has approved its form)', returns: 'null', params: studentParams, notFound: STUDENT_NOT_FOUND },
   async ({ req, res, params }) => { await setTrashed(params.id, true, req, panelOf(res).id); ok(res, null, 'Record moved to trash'); },
 );
 api.post(

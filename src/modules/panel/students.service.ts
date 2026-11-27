@@ -95,6 +95,8 @@ export async function listStudents(q: StudentListQuery, trash = false) {
         can_approve: r.status === 'SUBMITTED' && !r.approval_stage && !r.returned_at && allVerified(documents),
         /* Sent back to the candidate to correct, not resubmitted yet (program/returns). */
         returned_at: r.returned_at,
+        /* Not once the Auditor has approved the form (DELETE /manage/applicants/:id refuses it too). */
+        can_delete: !r.auditor_approved,
         /* Approved and in no batch. */
         can_batch: r.approval_stage === 'BATCH' && !r.batch_id,
         approval: r.status === 'SUBMITTED' ? approvalDto(r) : null,

@@ -201,6 +201,7 @@ describe('counts, filters and the list', () => {
       can_approve: false,
       can_batch: false,
       returned_at: null,
+      can_delete: true,
       approval: {
         stage: null,
         stage_label: null,

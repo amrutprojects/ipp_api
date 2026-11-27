@@ -1,7 +1,20 @@
 import { AppError, type FieldError } from '../../http/errors';
 import type { FieldType } from '../../program/constants';
 import { expressionProblem, functionProblem } from '../../program/sandbox';
-import { PAIRS, RULES, rulesFor, type FieldValidation } from '../../program/validation';
+import { goTogether, PAIRS, RULES, rulesFor, type FieldValidation, type RuleType } from '../../program/validation';
+
+/* As Masters → Form fields names them. */
+const CHECK_NAME: Partial<Record<RuleType, string>> = {
+  letters: 'Letters only',
+  digits: 'Digits only',
+  letters_digits: 'Letters and digits only',
+  pin_code: 'PIN code',
+  pan: 'PAN number',
+  ifsc: 'IFSC code',
+  email: 'Email address',
+  indian_mobile: 'Indian mobile number',
+  aadhaar: 'Aadhaar number',
+};
 import type { ValidationBody } from './fields.schemas';
 
 /* The checks an ADMIN gives to a field: that they fit its type and can be run. */
@@ -28,6 +41,11 @@ export async function checkedValidation(
     else if (wrong) issue(`rules.${i}.value`, wrong);
     else if (r.type === 'different_from' && around && (r.value === around.self || !around.keys.includes(String(r.value))))
       issue(`rules.${i}.value`, 'Choose another field of the form');
+  });
+  /* Two checks of what an answer is made of that no answer can keep together (letters only and digits only…). */
+  body.rules.forEach((r, i) => {
+    const before = body.rules.slice(0, i).find((o) => !goTogether(o.type, r.type));
+    if (before) issue(`rules.${i}.type`, `${CHECK_NAME[r.type]} cannot go with ${CHECK_NAME[before.type]}: no answer can be both`);
   });
   for (const [min, max] of PAIRS) {
     const at = body.rules.findIndex((r) => r.type === max);

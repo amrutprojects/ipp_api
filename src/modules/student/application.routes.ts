@@ -61,6 +61,18 @@ applicationApi.delete(
 );
 
 applicationApi.get(
+  '/application/documents/:docType/link',
+  {
+    auth: 'student',
+    summary: 'A short-lived link to the student’s own file of a document, for a tab to open it straight away',
+    returns: '{ url, expires_at }',
+    params: docTypeParams,
+    notFound: NO_FILE,
+  },
+  async ({ res, params }) => ok(res, await documentsService.link(studentOf(res), params.docType)),
+);
+
+applicationApi.get(
   '/application/documents/:docType/file',
   {
     auth: 'student',

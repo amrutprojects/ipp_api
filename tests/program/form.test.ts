@@ -117,11 +117,15 @@ describe('checkForm', () => {
   });
 
   it('a check across fields is one of the checks too: "different from" names the other field by its label', async () => {
-    expect(await problems({ alternate_mobile_number: '+91 ' + form.mobile_number })).toEqual({
-      alternate_mobile_number: 'Alternate Mobile Number must be different from Mobile Number',
-    });
-    await checks('alternate_mobile_number', { rules: [{ type: 'different_from', value: 'first_name' }], custom: [] });
+    /* The WhatsApp number may be the mobile number (migration 0011): it starts without that check… */
+    expect(await problems({ alternate_mobile_number: '+91 ' + form.mobile_number })).toEqual({});
+    /* …which an ADMIN can still give it, or any field. */
+    await checks('alternate_mobile_number', { rules: [{ type: 'different_from', value: 'mobile_number' }], custom: [] });
     try {
+      expect(await problems({ alternate_mobile_number: '+91 ' + form.mobile_number })).toEqual({
+        alternate_mobile_number: 'Alternate Mobile Number must be different from Mobile Number',
+      });
+      await checks('alternate_mobile_number', { rules: [{ type: 'different_from', value: 'first_name' }], custom: [] });
       expect(await problems({ alternate_mobile_number: form.mobile_number! })).toEqual({});
       expect(await problems({ alternate_mobile_number: form.first_name! })).toEqual({
         alternate_mobile_number: 'Alternate Mobile Number must be different from First Name',
@@ -230,9 +234,8 @@ describe('checkForm', () => {
     await sql(`DELETE FROM district_technologies`);
   });
 
-  it('wants other alternate contacts', async () => {
+  it('wants another alternate e-mail; the alternate (WhatsApp) number may be the mobile number', async () => {
     expect(await problems({ alternate_mobile_number: '+91 98765-43210', alternate_email: 'ASHA@example.test' })).toEqual({
-      alternate_mobile_number: 'Alternate Mobile Number must be different from Mobile Number',
       alternate_email: 'Alternate Email must be different from Email',
     });
   });

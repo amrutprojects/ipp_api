@@ -395,11 +395,11 @@ describe('PATCH /manage/centres/:id/status', () => {
     expect(await errors()).toEqual([]);
     const off = await patch(admin, `/centres/${id}/status`, { isActive: false });
     expect(off.status).toBe(200);
-    expect(off.body.message).toBe('Center deactivated');
+    expect(off.body.message).toBe('Center set to Inactive');
     expect(off.body.data).toEqual({ ...(await read(id)), isActive: false });
     expect(await errors()).toEqual([{ field: 'body.centre_id', message: 'Center Name not found or inactive' }]);
     const on = await patch(admin, `/centres/${id}/status`, { isActive: true });
-    expect(on.body).toMatchObject({ message: 'Center activated', data: { id, isActive: true } });
+    expect(on.body).toMatchObject({ message: 'Center set to Active', data: { id, isActive: true } });
     expect(issues(await patch(admin, `/centres/${id}/status`, {}))).toEqual({ 'body.isActive': 'isActive is required' });
     expect(issues(await patch(admin, `/centres/${id}/status`, { isActive: 'no', name: 'X' }))).toEqual({
       'body.isActive': 'isActive must be true or false',
@@ -431,13 +431,13 @@ describe('DELETE /manage/centres/:id', () => {
     const { id } = await add();
     const held = (message: string) => async () => refused(await del(admin, `/centres/${id}`), 409, message);
     const draft = await makeApplication('MAIN_DONE', { centre: id });
-    await held("This center cannot be deleted while 1 student's form references it. Deactivate it instead.")();
+    await held("This center cannot be deleted while 1 student's form references it. Set it to Inactive instead.")();
     const batch = await makeBatch({ centre: id, by: admin, district: 'PUN' });
-    await held("This center cannot be deleted while 1 student's form and 1 batch reference it. Deactivate it instead.")();
+    await held("This center cannot be deleted while 1 student's form and 1 batch reference it. Set it to Inactive instead.")();
     const sent = await makeApplication('SUBMITTED', { centre: id });
     await pool.query('UPDATE applications SET deleted_at = now() WHERE id = $1', [draft.applicationId]);
     await pool.query('UPDATE batches SET deleted_at = now() WHERE id = $1', [batch]);
-    await held("This center cannot be deleted while 1 student's form references it. Deactivate it instead.")();
+    await held("This center cannot be deleted while 1 student's form references it. Set it to Inactive instead.")();
     expect(await stored('centres', id)).toEqual({ is_active: true, deleted: false });
     await pool.query('UPDATE applications SET deleted_at = now() WHERE id = $1', [sent.applicationId]);
     expect((await del(admin, `/centres/${id}`)).status).toBe(200);
