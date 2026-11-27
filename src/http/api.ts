@@ -31,6 +31,8 @@ interface Spec<P extends z.ZodTypeAny, Q extends z.ZodTypeAny, B extends z.ZodTy
   body?: B;
   /* multipart/form-data with document files, one field per document code. */
   upload?: boolean;
+  /* Any other multipart/form-data, read by its own handler (e.g. one image). */
+  multipart?: { receive: RequestHandler; description: string };
   /* The stricter limit of sign-in, sign-up and OTP requests. */
   limited?: boolean;
   /* The status of a successful answer (default 200). */
@@ -109,6 +111,7 @@ export class Api {
         ...(spec.limited ? [authLimiter] : []),
         ...GUARDS[spec.auth],
         ...(spec.upload ? [receiveDocuments] : []),
+        ...(spec.multipart ? [spec.multipart.receive] : []),
         run,
       );
     };

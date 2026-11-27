@@ -47,7 +47,7 @@ export function openApiDocument() {
     if (e.auth !== 'public') errors.push(['401', 'Not signed in, or the session has expired']);
     if (e.auth === 'admin') errors.push(['403', 'A VIEWER may not change anything']);
     if (e.params) errors.push(['404', e.notFound ?? 'Not found']);
-    if (e.query || e.body || e.upload) errors.push(['422', 'One message per wrong field']);
+    if (e.query || e.body || e.upload || e.multipart) errors.push(['422', 'One message per wrong field']);
     if (e.limited) errors.push(['429', 'Too many requests']);
     registry.registerPath({
       method: e.method,
@@ -64,6 +64,14 @@ export function openApiDocument() {
           ? {
               body: {
                 description: 'One file per field; the field is the document code (PHOTO, SIGNATURE, …).',
+                content: { 'multipart/form-data': { schema: z.record(z.string().openapi({ format: 'binary' })) } },
+              },
+            }
+          : {}),
+        ...(e.multipart
+          ? {
+              body: {
+                description: e.multipart.description,
                 content: { 'multipart/form-data': { schema: z.record(z.string().openapi({ format: 'binary' })) } },
               },
             }
