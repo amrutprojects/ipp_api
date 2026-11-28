@@ -108,7 +108,13 @@ describe('counts, filters and the list', () => {
     await pool.query(`UPDATE program_options SET is_active = false WHERE kind = 'CASTE' AND code = 'SAR03'`);
     await pool.query(`UPDATE districts SET is_active = false WHERE code = 'AKO'`);
     const data = (await get('/manage/filters', viewer.token)).body.data;
-    expect(Object.keys(data).sort()).toEqual(['categories', 'centres', 'districts', 'stages']);
+    expect(Object.keys(data).sort()).toEqual(['categories', 'centres', 'districts', 'stages', 'technologies']);
+    /* The technologies by name, in their order. */
+    expect(data.technologies[0]).toEqual({
+      id: await optionId('TECHNOLOGY', 'T01'),
+      name: 'Data Analytics & Business Intelligence',
+    });
+    expect(data.technologies.map((t: { name: string }) => t.name)).toContain('Web Design & Development');
     expect(data.districts).toHaveLength(35);
     expect(data.districts[0]).toEqual({ id: await districtId('AHL'), name: 'Ahilyanagar' });
     const names = data.districts.map((d: { name: string }) => d.name);
@@ -191,6 +197,7 @@ describe('counts, filters and the list', () => {
       district_id: await districtId('PUN'),
       district: 'Pune',
       category: 'मराठा-कुणबी',
+      technology: 'Data Analytics & Business Intelligence',
       centre: 'Pune Center',
       centre_id: puneCentre,
       documents: { uploaded: (await activeDocuments()).length, verified: 0 },
@@ -231,6 +238,7 @@ describe('counts, filters and the list', () => {
       stage: 'OTP_PENDING',
       otp_verified_at: null,
       district: null,
+      technology: null,
       centre: null,
       centre_id: null,
     });
@@ -327,6 +335,14 @@ describe('counts, filters and the list', () => {
     expect(await ids(T, `?district_id=${await districtId('PUN')}`)).toEqual([submitted.student.id]);
     expect(await ids(T, `?caste_id=${await optionId('CASTE', 'SAR02')}`)).toEqual([submitted.student.id]);
     expect(await ids(T, `?centre_id=${puneCentre}`)).toEqual([submitted.student.id]);
+    /* By the Technology chosen in the form (kept there as the choice's code). */
+    const t01 = await ids(T, `?technology_id=${await optionId('TECHNOLOGY', 'T01')}`);
+    expect(t01).toContain(submitted.student.id);
+    expect(t01).not.toContain(verified.id);
+    expect(await ids(T, `?technology_id=${await optionId('TECHNOLOGY', 'T02')}`)).toEqual([]);
+    expect(await ids(T, `?technology_id=${await optionId('TECHNOLOGY', 'T01')}&centre_id=${puneCentre}`)).toEqual([
+      submitted.student.id,
+    ]);
     expect(await ids(T, '?name=ZEENAT%20ver')).toEqual([verified.id]);
     expect(await ids(T, '?mobile=654123')).toEqual([submitted.student.id]);
     expect(await ids(T, '?follow_up=SECOND_CALL')).toEqual([verified.id]);
@@ -374,7 +390,7 @@ describe('counts, filters and the list', () => {
   it('refuses wrong filters with the field that is wrong', async () => {
     const bad = await list(
       viewer.token,
-      '?mobile=abc&district_id=x&caste_id=x&centre_id=x&documents=MAYBE&final=x&stage=x&application_stage=SUBMITTED&follow_up=x&approval=x&page=0&limit=101&sortBy=email',
+      '?mobile=abc&district_id=x&caste_id=x&technology_id=x&centre_id=x&documents=MAYBE&final=x&stage=x&application_stage=SUBMITTED&follow_up=x&approval=x&page=0&limit=101&sortBy=email',
     );
     expect(bad.status).toBe(422);
     expect(fieldsOf(bad)).toEqual(
@@ -392,6 +408,7 @@ describe('counts, filters and the list', () => {
         'page',
         'sortBy',
         'stage',
+        'technology_id',
       ].map((f) => `query.${f}`),
     );
     expect(detailsOf(await list(viewer.token, '?mobile=98x'))).toEqual([

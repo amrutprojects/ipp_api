@@ -59,6 +59,8 @@ export async function filters() {
   return {
     ...choices,
     categories: program.allOf('CASTE').map((o) => ({ id: o.id, name: shownName(o) })),
+    /* Also a switched-off one: forms that chose it can still be found. */
+    technologies: program.allOf('TECHNOLOGY').map((o) => ({ id: o.id, name: shownName(o) })),
     stages: keysOf(APPLICATION_STAGES).map((code) => ({ code, label: APPLICATION_STAGES[code] })),
   };
 }

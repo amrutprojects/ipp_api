@@ -21,26 +21,35 @@ export const studentFilterFields = {
   ),
   district_id: z.preprocess(blankAsMissing, uuid('District').optional()),
   caste_id: z.preprocess(blankAsMissing, uuid('Category').optional()),
+  technology_id: z.preprocess(blankAsMissing, uuid('Technology').optional()),
   centre_id: z.preprocess(blankAsMissing, uuid('Centre').optional()),
   documents: z.preprocess(blankAsMissing, checkState.optional()),
   final: z.preprocess(blankAsMissing, checkState.optional()),
 };
 export type StudentFilters = z.infer<z.ZodObject<typeof studentFilterFields>> & { search?: string };
 
-/* The current names of the form's District, Caste (Marathi) and Center Name. */
+/*
+ * The current names of the form's District, Caste (Marathi), Technology and Center Name. The form keeps the Technology as
+ * the choice's code: its name is the one of the choice with that code, a deleted one only when no other has it.
+ */
 export const FILTER_JOINS = `
   LEFT JOIN districts dd ON dd.id = p.district_id
   LEFT JOIN program_options co ON co.id = p.caste_id AND co.kind = 'CASTE'
+  LEFT JOIN LATERAL (
+    SELECT o.name_en FROM program_options o WHERE o.kind = 'TECHNOLOGY' AND o.code = p.data ->> 'technology'
+    ORDER BY o.deleted_at NULLS FIRST LIMIT 1
+  ) te ON true
   LEFT JOIN centres ce ON ce.id = p.centre_id`;
 
 export const FILTER_COLUMNS = `p.registration_code, dd.name AS district, p.district_id, coalesce(co.name_mr, co.name_en) AS category,
-  ce.name AS centre, (p.documents_verified_at IS NOT NULL) AS documents_verified, (p.approval_stage IS NOT DISTINCT FROM 'APPROVED') AS final_verified`;
+  te.name_en AS technology_name, ce.name AS centre, (p.documents_verified_at IS NOT NULL) AS documents_verified, (p.approval_stage IS NOT DISTINCT FROM 'APPROVED') AS final_verified`;
 
 export interface FilterRow {
   registration_code: string | null;
   district: string | null;
   district_id: string | null;
   category: string | null;
+  technology_name: string | null;
   centre: string | null;
   documents_verified: boolean;
   final_verified: boolean;
@@ -51,6 +60,7 @@ export const filterDto = (r: FilterRow) => ({
   district: r.district,
   district_id: r.district_id,
   category: r.category,
+  technology: r.technology_name,
   centre: r.centre,
   documents_verified: r.documents_verified,
   final_verified: r.final_verified,
@@ -74,6 +84,9 @@ export function filterSql(q: StudentFilters, params: unknown[]): string {
   if (q.mobile) where += ` AND a.mobile LIKE ${add(contains(q.mobile))}`;
   if (q.district_id) where += ` AND p.district_id = ${add(q.district_id)}`;
   if (q.caste_id) where += ` AND p.caste_id = ${add(q.caste_id)}`;
+  /* The form keeps the Technology as the choice's code; the filter gives the choice's id. */
+  if (q.technology_id)
+    where += ` AND p.data ->> 'technology' = (SELECT o.code FROM program_options o WHERE o.id = ${add(q.technology_id)} AND o.kind = 'TECHNOLOGY')`;
   if (q.centre_id) where += ` AND p.centre_id = ${add(q.centre_id)}`;
   if (q.documents) where += ` AND p.documents_verified_at IS ${q.documents === 'VERIFIED' ? 'NOT NULL' : 'NULL'}`;
   if (q.final) where += ` AND p.approval_stage IS ${q.final === 'VERIFIED' ? 'NOT DISTINCT' : 'DISTINCT'} FROM 'APPROVED'`;
