@@ -591,6 +591,22 @@ Side effect: `last_login_at = now`. 401 `Incorrect email or password` for an unk
 ### E3 `GET /manage/summary` – V
 200 `data: Summary`. Counts every not-deleted account; not affected by filters.
 
+### E3a `GET /manage/dashboard` – V
+200 `data: { districts, categories, technologies, centres: { id, name, count }[], documents, final: { VERIFIED, NOT_VERIFIED } }`:
+the Auditor's dashboard (Dashboard, the panel's first section and its start page after sign-in). Counts the students of the list
+(accounts not deleted and not in the trash) by the values the list's filters take, so each count opens the same students in
+Student tracking (`/manage?district_id=…`, `caste_id`, `technology_id`, `centre_id`, `documents`, `final`, `application_stage`);
+`id: null` = not filled in yet. The page adds the stage tiles and Stage of application from E3 and E4.
+
+### E3b `POST /manage/batches/:id/start` – A, E3c `POST /manage/batches/:id/end` – A
+Body `{ email, password, at }`: the signed-in user's e-mail and password again (422 `body.password` when wrong; counted with the
+sign-in's wrong passwords, so 429 after too many) and the date and time (ISO; not in the future, not before the batch was made, an
+end not before the start). Start: once every student of the batch is final approved (409 otherwise, and when already started).
+End: once, after the start (409 otherwise). Sets `batches.started_at/by` or `ended_at/by`, adds a `batch_runs` row (append-only
+history, GET /manage/batches/:id → `runs`), audits `edp.batch.start`/`edp.batch.end` and sends the batch to Sarthi (BATCH_UPDATE
+with `status`, `started_at`, `ended_at`). Every batch in the list and its page has `run: { status, ready, started_at, started_by,
+ended_at, ended_by }`.
+
 ### E4 `GET /manage/filters` – V
 200 `data: ListFilterOptions`.
 
@@ -736,7 +752,10 @@ Body `{ name, email, password, role }`. **201** `data: ManageUser`. 422 `body.na
 | --- | --- | --- | --- | --- |
 | E1 | POST /manage/auth/login | public | sign-in | 200 |
 | E2 | GET /manage/me | V | session | 200 |
-| E3 | GET /manage/summary | V | list | 200 |
+| E3 | GET /manage/summary | V | list, dashboard | 200 |
+| E3a | GET /manage/dashboard | V | dashboard | 200 |
+| E3b | POST /manage/batches/:id/start | A | Batches, a batch page | 200 |
+| E3c | POST /manage/batches/:id/end | A | Batches, a batch page | 200 |
 | E4 | GET /manage/filters | V | list | 200 |
 | E5 | GET /manage/applicants | V | list | 200 + meta |
 | E6 | GET /manage/applicants/:id | V | student, Edit form, batch history | 200 |

@@ -1,8 +1,8 @@
 import { Api } from '../../http/api';
 import { panelOf } from '../../http/auth';
 import { created, ok } from '../../http/respond';
-import { batchListQuery, batchParams, createBatchBody, updateBatchBody } from './batches.schemas';
-import { batch, createBatch, listBatches, updateBatch } from './batches.service';
+import { batchListQuery, batchParams, batchRunBody, createBatchBody, updateBatchBody } from './batches.schemas';
+import { batch, createBatch, endBatch, listBatches, startBatch, updateBatch } from './batches.service';
 
 export const batchesApi = new Api('Panel: batches');
 const api = batchesApi;
@@ -53,4 +53,34 @@ api.patch(
     body: updateBatchBody,
   },
   async ({ req, res, params, body }) => ok(res, await updateBatch(req, panelOf(res), params.id, body), 'Batch saved'),
+);
+
+api.post(
+  '/manage/batches/:id/start',
+  {
+    auth: 'admin',
+    limited: true,
+    summary:
+      'Starts the batch at the given date and time, once every student of it is final approved; the e-mail and password of the signed-in user confirm it (422 when wrong)',
+    returns: 'BatchDetail',
+    params: batchParams,
+    notFound: NOT_FOUND,
+    body: batchRunBody,
+  },
+  async ({ req, res, params, body }) => ok(res, await startBatch(req, panelOf(res), params.id, body), 'Batch started'),
+);
+
+api.post(
+  '/manage/batches/:id/end',
+  {
+    auth: 'admin',
+    limited: true,
+    summary:
+      'Ends an ongoing batch at the given date and time; the e-mail and password of the signed-in user confirm it (422 when wrong)',
+    returns: 'BatchDetail',
+    params: batchParams,
+    notFound: NOT_FOUND,
+    body: batchRunBody,
+  },
+  async ({ req, res, params, body }) => ok(res, await endBatch(req, panelOf(res), params.id, body), 'Batch ended'),
 );

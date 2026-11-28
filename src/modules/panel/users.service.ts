@@ -55,6 +55,27 @@ async function countTry(userId: string): Promise<boolean> {
   return row !== null;
 }
 
+/*
+ * The final confirmation of a change that is not undone (starting or ending a batch): the signed-in user gives their e-mail
+ * and password again. Counted with the sign-in's wrong passwords, so it cannot be used to guess one. A wrong one is a field
+ * error (422), not 401: the user stays signed in.
+ */
+export async function confirmIdentity(user: PanelUser, email: string, password: string): Promise<void> {
+  const wrong = () =>
+    AppError.validation([
+      { field: 'body.password', message: 'The email or password is not right. Enter the ones you are signed in with.' },
+    ]);
+  const row = await one<{ id: string; password_hash: string; is_active: boolean }>(
+    `SELECT id, password_hash, is_active FROM panel_users WHERE id = $1 AND deleted_at IS NULL`,
+    [user.id],
+  );
+  if (!row || !row.is_active) throw wrong();
+  if (!(await countTry(row.id))) throw AppError.tooMany('Too many attempts. Please try again later.');
+  const matches = await passwordMatches(password, row.password_hash);
+  if (!matches || email.trim().toLowerCase() !== user.email.toLowerCase()) throw wrong();
+  await pool.query(`UPDATE panel_users SET failed_logins = 0, failed_window_start = NULL WHERE id = $1`, [row.id]);
+}
+
 export async function login(body: LoginBody) {
   const user = await one<UserRow & { password_hash: string; password_changed_at: Date | null }>(
     `SELECT ${USER_COLUMNS}, password_hash, password_changed_at FROM panel_users WHERE email = $1 AND deleted_at IS NULL`,
@@ -113,7 +134,11 @@ async function lockedUser(db: Parameters<Parameters<typeof transaction>[0]>[0], 
     [],
     db,
   );
-  const user = await one<UserRow>(`SELECT ${USER_COLUMNS} FROM panel_users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [id], db);
+  const user = await one<UserRow>(
+    `SELECT ${USER_COLUMNS} FROM panel_users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+    [id],
+    db,
+  );
   if (!user) throw AppError.notFound('User not found');
   if (!admins.some((a) => a.id === by.id)) throw AppError.unauthorized('Please log in to continue.');
   return { user, lastAdmin: user.role === 'ADMIN' && user.is_active && admins.every((a) => a.id === user.id) };

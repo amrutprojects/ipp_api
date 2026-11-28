@@ -2,6 +2,7 @@ import type { Api } from '../../http/api';
 import { approvalApi } from './approval.routes';
 import { batchesApi } from './batches.routes';
 import { correctionsApi } from './corrections.routes';
+import { dashboardApi } from './dashboard.routes';
 import { filesApi } from './files.routes';
 import { followUpsApi } from './follow-ups.routes';
 import { linkPanelApi } from './link.routes';
@@ -14,6 +15,7 @@ import { usersApi } from './users.routes';
 export const panelApis: Api[] = [
   usersApi,
   studentsApi,
+  dashboardApi,
   approvalApi,
   returnsApi,
   correctionsApi,

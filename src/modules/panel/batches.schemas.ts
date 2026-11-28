@@ -45,3 +45,25 @@ export const updateBatchBody = z
   .strict()
   .refine((b) => Object.values(b).some((v) => v !== undefined), 'Nothing to change');
 export type UpdateBatchBody = z.infer<typeof updateBatchBody>;
+
+/*
+ * Starting or ending a batch: the signed-in user's e-mail and password again (the final confirmation), and the date and time
+ * it started or ended (an ISO date-time, e.g. from the browser's local date and time).
+ */
+export const batchRunBody = z
+  .object({
+    email: z
+      .string({ required_error: 'Email is required', invalid_type_error: 'Email must be text' })
+      .trim()
+      .min(1, 'Email is required')
+      .max(254),
+    password: z
+      .string({ required_error: 'Password is required', invalid_type_error: 'Password must be text' })
+      .min(1, 'Password is required')
+      .max(200, 'Password must be at most 200 characters'),
+    at: z
+      .string({ required_error: 'Date and time are required', invalid_type_error: 'Date and time must be text' })
+      .refine((v) => !Number.isNaN(Date.parse(v)) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v), 'Enter a valid date and time'),
+  })
+  .strict();
+export type BatchRunBody = z.infer<typeof batchRunBody>;

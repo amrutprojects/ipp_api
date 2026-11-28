@@ -62,6 +62,11 @@ done once, so a repeated or replayed call changes nothing. Anything wrong with t
     delivery_mode: 'OFFLINE' | 'ONLINE' | 'BLENDED';
     technology: { code: string; name: string } | null;
     created_at: string; created_by: string | null;
+    // Where the batch is: the Auditor starts it once every student of it is final approved, then ends it (each at the date
+    // and time they give, confirmed with their e-mail and password). Sent with BATCH_UPDATE each time. A receiver that
+    // predates these fields ignores them.
+    status: 'NOT_STARTED' | 'ONGOING' | 'ENDED';
+    started_at: string | null; ended_at: string | null;           // ISO
   };
   applications: {      // 0–100
     action: 'SUBMIT' | 'RESUBMIT' | 'UPDATE';

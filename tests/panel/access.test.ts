@@ -11,6 +11,7 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['post', '/manage/auth/login', 'public'],
   ['get', '/manage/me', 'panel'],
   ['get', '/manage/summary', 'panel'],
+  ['get', '/manage/dashboard', 'panel'],
   ['get', '/manage/filters', 'panel'],
   ['get', '/manage/applicants', 'panel'],
   ['get', '/manage/applicants/:id', 'panel'],
@@ -34,6 +35,8 @@ const ENDPOINTS: [method: string, path: string, auth: 'public' | 'panel' | 'admi
   ['post', '/manage/batches', 'admin'],
   ['get', '/manage/batches/:id', 'panel'],
   ['patch', '/manage/batches/:id', 'admin'],
+  ['post', '/manage/batches/:id/start', 'admin'],
+  ['post', '/manage/batches/:id/end', 'admin'],
   ['get', '/manage/settings/batch', 'panel'],
   ['put', '/manage/settings/batch', 'admin'],
   ['get', '/manage/settings/support', 'panel'],
@@ -67,10 +70,10 @@ beforeAll(async () => {
 afterAll(closeDatabase);
 
 describe('who may call the panel', () => {
-  it('has the 43 endpoints of the panel, each with its guard', () => {
+  it('has the 46 endpoints of the panel, each with its guard', () => {
     const sorted = (list: string[][]) => list.map((e) => e.join(' ')).sort();
     expect(sorted(declared().map((e) => [e.method, e.path, e.auth]))).toEqual(sorted(ENDPOINTS));
-    expect(ENDPOINTS).toHaveLength(43);
+    expect(ENDPOINTS).toHaveLength(46);
   });
 
   it.each(ENDPOINTS.filter(([, , auth]) => auth !== 'public'))('%s %s needs a panel session', async (method, path) => {
@@ -101,6 +104,7 @@ describe('who may call the panel', () => {
     for (const path of [
       '/manage/me',
       '/manage/summary',
+      '/manage/dashboard',
       '/manage/filters',
       '/manage/applicants',
       `/manage/applicants/${student.id}`,

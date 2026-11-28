@@ -29,6 +29,11 @@ export interface BatchRow {
   created_by: string | null;
   updated_at: Date;
   updated_by: string | null;
+  /* When the batch started and ended (null = not yet), and who gave it. */
+  started_at: Date | null;
+  started_by: string | null;
+  ended_at: Date | null;
+  ended_by: string | null;
 }
 
 const FROM = `FROM batches b
@@ -37,6 +42,8 @@ const FROM = `FROM batches b
   LEFT JOIN program_options t ON t.id = b.technology_id
   LEFT JOIN panel_users cu ON cu.id = b.created_by
   LEFT JOIN panel_users uu ON uu.id = b.updated_by
+  LEFT JOIN panel_users su ON su.id = b.started_by
+  LEFT JOIN panel_users eu ON eu.id = b.ended_by
   WHERE b.deleted_at IS NULL`;
 
 const SELECT = `SELECT b.id, b.code, b.name, b.centre_id, c.name AS centre_name, c.code AS centre_code,
@@ -44,7 +51,8 @@ const SELECT = `SELECT b.id, b.code, b.name, b.centre_id, c.name AS centre_name,
     b.technology_id, t.code AS technology_code, t.name_en AS technology_name,
     (SELECT count(*)::int FROM applications p
      WHERE p.batch_id = b.id AND p.deleted_at IS NULL AND p.centre_id <> b.centre_id) AS other_centre,
-    b.created_at, cu.name AS created_by, b.updated_at, uu.name AS updated_by
+    b.created_at, cu.name AS created_by, b.updated_at, uu.name AS updated_by,
+    b.started_at, su.name AS started_by, b.ended_at, eu.name AS ended_by
   ${FROM}`;
 
 export async function findBatches(q: BatchListQuery): Promise<{ items: BatchRow[]; total: number }> {

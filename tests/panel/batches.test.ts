@@ -48,6 +48,7 @@ const refusal = (res: Awaited<ReturnType<typeof create>>) => [res.status, res.bo
 const batches = async () => (await one<{ n: number }>(`SELECT count(*)::int AS n FROM batches`))!.n;
 
 const BATCH_KEYS = [
+  'run',
   'id',
   'code',
   'name',
@@ -88,7 +89,7 @@ describe('POST /manage/batches', () => {
     expect(res.status).toBe(201);
     expect(res.body.message).toBe('Batch created and sent to the Divisional Officer');
     const d = res.body.data;
-    expect(Object.keys(d).sort()).toEqual([...BATCH_KEYS, 'members'].sort());
+    expect(Object.keys(d).sort()).toEqual([...BATCH_KEYS, 'members', 'runs'].sort());
     expect(d).toMatchObject({
       id: expect.any(String),
       code: 'IPP-B-0001',

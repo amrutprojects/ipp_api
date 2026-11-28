@@ -27,6 +27,10 @@ export interface LinkMessage {
     technology: { code: string; name: string } | null;
     created_at: Date;
     created_by: string | null;
+    /* Where the batch is (the Auditor starts and ends it): NOT_STARTED, ONGOING or ENDED, and when. */
+    status: 'NOT_STARTED' | 'ONGOING' | 'ENDED';
+    started_at: Date | null;
+    ended_at: Date | null;
   };
   applications: LinkApplication[];
 }
@@ -84,11 +88,14 @@ interface BatchData {
   centre_name: string;
   technology_code: string | null;
   technology_name: string | null;
+  started_at: Date | null;
+  ended_at: Date | null;
 }
 
 async function batchOf(db: Db, id: string): Promise<LinkMessage['batch'] | null> {
   const b = await one<BatchData>(
     `SELECT b.id, b.code, b.name, b.size, b.start_date, b.end_date, b.delivery_mode, b.created_at, cu.name AS created_by,
+            b.started_at, b.ended_at,
             d.code AS district_code, d.name AS district_name, s.code AS state_code, c.code AS centre_code, c.name AS centre_name,
             t.code AS technology_code, t.name_en AS technology_name
      FROM batches b JOIN districts d ON d.id = b.district_id JOIN states s ON s.id = d.state_id JOIN centres c ON c.id = b.centre_id
@@ -111,6 +118,9 @@ async function batchOf(db: Db, id: string): Promise<LinkMessage['batch'] | null>
     technology: b.technology_code ? { code: b.technology_code, name: b.technology_name! } : null,
     created_at: b.created_at,
     created_by: b.created_by,
+    status: b.ended_at ? 'ENDED' : b.started_at ? 'ONGOING' : 'NOT_STARTED',
+    started_at: b.started_at,
+    ended_at: b.ended_at,
   };
 }
 

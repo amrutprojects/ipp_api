@@ -129,6 +129,10 @@ describe('what is told to Sarthi', () => {
       technology: { code: 'T01', name: 'Data Analytics & Business Intelligence' },
       created_at: expect.any(String),
       created_by: 'Program Auditor',
+      /* Not started: the Auditor starts it once every student of it is final approved. */
+      status: 'NOT_STARTED',
+      started_at: null,
+      ended_at: null,
     });
     const first = message.applications[0]!;
     expect(first).toMatchObject({

@@ -1,10 +1,10 @@
 import type { Request } from 'express';
 import { DatabaseError } from 'pg';
-import { one, pool, transaction, type Db } from '../../db/pool';
+import { one, pool, rows, transaction, type Db } from '../../db/pool';
 import type { PanelUser } from '../../http/auth';
 import { AppError, ERROR_CODES } from '../../http/errors';
 import { pageMeta } from '../../lib/paging';
-import { approvalDto, batchProgress, recordMove } from '../../program/approval';
+import { approvalDto, batchProgress, recordMove, type BatchProgress } from '../../program/approval';
 import { allVerified } from '../../program/document-checks';
 import { filterDto } from '../../program/filters';
 import { loadProgram } from '../../program/masters';
@@ -21,8 +21,9 @@ import {
   type BatchRow,
   type CandidateRow,
 } from './batches.repository';
-import type { BatchListQuery, CreateBatchBody, UpdateBatchBody } from './batches.schemas';
+import type { BatchListQuery, BatchRunBody, CreateBatchBody, UpdateBatchBody } from './batches.schemas';
 import { actor, people } from './common';
+import { confirmIdentity } from './users.service';
 
 /*
  * Batches: a named group of exactly as many students as the batch size of their district is set to (Settings: the default, or
@@ -47,6 +48,23 @@ async function orNameTaken<T>(work: () => Promise<T>): Promise<T> {
 
 /* ---------------------------------------------------------------------------------------------------------------- views */
 
+/*
+ * Where the batch is: NOT_STARTED, ONGOING (started, not ended) or ENDED, when and by whom; ready = every student of it is
+ * finally approved, so it may start.
+ */
+export type RunStatus = 'NOT_STARTED' | 'ONGOING' | 'ENDED';
+export const runStatus = (b: { started_at: Date | null; ended_at: Date | null }): RunStatus =>
+  b.ended_at ? 'ENDED' : b.started_at ? 'ONGOING' : 'NOT_STARTED';
+const allApproved = (p: BatchProgress) => p.students > 0 && p.stages.APPROVED === p.students;
+const runDto = (b: BatchRow, p: BatchProgress) => ({
+  status: runStatus(b),
+  ready: allApproved(p),
+  started_at: b.started_at,
+  started_by: b.started_by,
+  ended_at: b.ended_at,
+  ended_by: b.ended_by,
+});
+
 /* Batches as listed, each with where its students are now. */
 async function batchDtos(list: BatchRow[], db: Db) {
   const ids = list.map((b) => b.id);
@@ -60,6 +78,7 @@ async function batchDtos(list: BatchRow[], db: Db) {
     district: { id: b.district_id, name: b.district_name },
     size: b.size,
     ...progress.get(b.id)!,
+    run: runDto(b, progress.get(b.id)!),
     /* Whether Sarthi has it as it is now; null = nothing was sent of it. */
     sync: sync.get(b.id) ?? null,
     /* How many of its students chose another center than the batch's. */
@@ -67,7 +86,8 @@ async function batchDtos(list: BatchRow[], db: Db) {
     start_date: b.start_date,
     end_date: b.end_date,
     delivery_mode: b.delivery_mode,
-    technology: b.technology_id && b.technology_code ? { id: b.technology_id, code: b.technology_code, name: b.technology_name } : null,
+    technology:
+      b.technology_id && b.technology_code ? { id: b.technology_id, code: b.technology_code, name: b.technology_name } : null,
     created_at: b.created_at,
     created_by: b.created_by,
     updated_at: b.updated_at,
@@ -88,8 +108,15 @@ export async function batch(id: string, db: Db = pool) {
   const [dto] = await batchDtos([b], db);
   const members = await findMembers(id, db);
   const program = await loadProgram(db);
+  /* Every start and end, oldest first. */
+  const runs = await rows<{ action: 'START' | 'END'; at: Date; by: string; recorded_at: Date }>(
+    `SELECT action, at, actor_name AS by, created_at AS recorded_at FROM batch_runs WHERE batch_id = $1 ORDER BY seq`,
+    [id],
+    db,
+  );
   return {
     ...dto!,
+    runs,
     members: members.map((m) => {
       const approval = approvalDto(m);
       return {
@@ -256,3 +283,61 @@ export async function updateBatch(req: Request, user: PanelUser, id: string, bod
   kickLink();
   return saved;
 }
+
+/* ------------------------------------------------------------------------------------------------------------ start, end */
+
+/* A date and time a little ahead of the server's clock is still now (the browser's clock may run ahead). */
+const CLOCK_SLACK_MS = 5 * 60_000;
+
+/*
+ * Starts or ends a batch, at the date and time the Auditor gives, after they confirmed their e-mail and password. A batch
+ * starts once every student of it is finally approved, and only once; it ends once, after it started. Each is kept in
+ * batch_runs, audited, and sent to Sarthi with the batch (BATCH_UPDATE).
+ */
+async function runBatch(req: Request, user: PanelUser, id: string, body: BatchRunBody, action: 'START' | 'END') {
+  await confirmIdentity(user, body.email, body.password);
+  const at = new Date(body.at);
+  if (at.getTime() > Date.now() + CLOCK_SLACK_MS)
+    throw invalid('at', action === 'START' ? 'The start cannot be in the future.' : 'The end cannot be in the future.');
+  const saved = await transaction(async (db) => {
+    if (!(await lockBatch(id, db))) throw AppError.notFound('Batch not found');
+    const b = (await findBatch(id, db))!;
+    if (action === 'START') {
+      if (b.started_at) throw AppError.conflict('This batch has already started.');
+      const p = (await batchProgress([id], db)).get(id)!;
+      if (!allApproved(p))
+        throw AppError.conflict(
+          `A batch starts once every student of it is final approved: ${p.stages.APPROVED} of ${p.students} are now.`,
+        );
+      if (at < b.created_at) throw invalid('at', 'The start cannot be before the batch was created.');
+      await db.query(`UPDATE batches SET started_at = $2, started_by = $3 WHERE id = $1`, [id, at, user.id]);
+    } else {
+      if (!b.started_at) throw AppError.conflict('This batch has not started yet.');
+      if (b.ended_at) throw AppError.conflict('This batch has already ended.');
+      if (at < b.started_at) throw invalid('at', 'The end cannot be before the batch started.');
+      await db.query(`UPDATE batches SET ended_at = $2, ended_by = $3 WHERE id = $1`, [id, at, user.id]);
+    }
+    await db.query(`INSERT INTO batch_runs (batch_id, action, at, panel_user_id, actor_name) VALUES ($1, $2, $3, $4, $5)`, [
+      id,
+      action,
+      at,
+      user.id,
+      user.name,
+    ]);
+    await enqueueBatch(db, 'BATCH_UPDATE', id);
+    await audit.inTx(db, req, {
+      action: action === 'START' ? 'edp.batch.start' : 'edp.batch.end',
+      resource: 'batch',
+      resourceId: id,
+      actor: actor(user),
+      details: { at: at.toISOString() },
+    });
+    return batch(id, db);
+  });
+  kickLink();
+  return saved;
+}
+
+export const startBatch = (req: Request, user: PanelUser, id: string, body: BatchRunBody) =>
+  runBatch(req, user, id, body, 'START');
+export const endBatch = (req: Request, user: PanelUser, id: string, body: BatchRunBody) => runBatch(req, user, id, body, 'END');
